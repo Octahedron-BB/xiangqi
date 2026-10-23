@@ -1,0 +1,9 @@
+# Keep text files LF in the repository regardless of the checkout platform, so
+# diffs stay clean across Windows/macOS/Linux.
+* text=auto eol=lf
+
+# Binary payloads must never be touched.
+*.wasm binary
+*.data binary
+*.png binary
+*.ico binary

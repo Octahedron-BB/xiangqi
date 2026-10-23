@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>象棋 Roguelike · 劫棋</title>
+<meta name="theme-color" content="#b1624d">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23ab281a'/%3E%3Ctext x='16' y='23' font-size='19' text-anchor='middle' fill='%23fff' font-family='serif'%3E%E5%8A%AB%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="rogue.css">
+</head>
+<body>
+<div class="app">
+  <section class="board-area">
+    <div class="board-shell">
+      <div class="board" id="board">
+        <div class="grid" id="grid">
+          <img class="board-grid" src="assets/board/board-lines.svg" alt="" draggable="false">
+          <div class="layer" id="cells"></div>
+          <div class="layer" id="marks"></div>
+          <div class="layer" id="pieces"></div>
+        </div>
+        <div class="coords" id="coords"></div>
+      </div>
+    </div>
+    <div class="scorebar" id="scorebar">
+      <span class="side red" id="sideRed">我</span>
+      <div class="bar"><div class="bar-fill" id="barFill"></div></div>
+      <span class="side black" id="sideBlack">敌</span>
+      <span class="eval" id="evalText">—</span>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <header class="panel-head">
+      <h1>劫棋</h1>
+      <p class="status" id="status">红方走棋</p>
+    </header>
+
+    <div class="group">
+      <div class="level-row">
+        <span class="level-pill" id="levelPill">第 1 / 8 关</span>
+        <span class="level-name" id="levelName">残兵</span>
+      </div>
+      <p class="goal"><span class="goal-tag" id="goalTag">歼灭</span><span id="goalText"></span></p>
+      <p class="hint" id="levelTip"></p>
+    </div>
+
+    <div class="group hud">
+      <div class="hud-row">
+        <span class="hud-label">部队</span>
+        <span class="hud-army" id="army">帥 车 兵×2</span>
+      </div>
+      <div class="hud-row">
+        <span class="hud-label">护甲</span>
+        <span class="hud-armor" id="armor">❤</span>
+      </div>
+      <div class="hud-row">
+        <span class="hud-label">金币</span>
+        <span class="hud-gold" id="gold">0</span>
+        <span class="hud-items" id="items"></span>
+      </div>
+      <div class="hud-row">
+        <span class="hud-label">强化</span>
+        <span class="hud-build" id="build">还没有强化</span>
+      </div>
+    </div>
+
+    <div class="group buttons">
+      <button id="btnRetry" title="退回本关开始时的部队，重新打这一关">重开本关</button>
+      <button id="btnUndo" disabled>悔棋符 ×0</button>
+    </div>
+
+    <div class="group buttons">
+      <button id="btnSave">保存</button>
+      <button id="btnLoad">读取</button>
+      <button id="btnNew" class="danger">从头开始</button>
+    </div>
+
+    <div class="group grow">
+      <label class="label">着法</label>
+      <ol class="moves" id="moves"></ol>
+    </div>
+
+    <div class="group engine">
+      <label class="label">AI</label>
+      <div class="engine-line" id="aiInfo">&nbsp;</div>
+      <a class="back" href="index.html">← 回到经典模式</a>
+    </div>
+  </aside>
+</div>
+
+<div class="overlay" id="overlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ovTitle">
+    <p class="sheet-kicker" id="ovKicker">过关</p>
+    <h2 class="sheet-title" id="ovTitle">选一项奖励</h2>
+    <p class="sheet-sub" id="ovSub"></p>
+    <div class="cards" id="ovCards"></div>
+    <div class="sheet-foot" id="ovFoot"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="js/rogue/app.js"></script>
+</body>
+</html>

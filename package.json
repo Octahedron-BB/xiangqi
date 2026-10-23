@@ -1,0 +1,10 @@
+{
+  "name": "xiangqi-local",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local Chinese chess game reusing play.xiangqi.com board assets, rules engine and Pikafish bot. Personal use only.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

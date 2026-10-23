@@ -1,0 +1,14 @@
+# dependencies
+node_modules/
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# scratch files
+tmp-*
+*.log
+
+# 油猴脚本（第三方站点的辅助工具，不属于本项目的源码）
+play.xiangqi.com*.txt

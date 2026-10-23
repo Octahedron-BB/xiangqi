@@ -1,0 +1,306 @@
+/* Only the bits the roguelike prototype adds on top of styles.css. */
+
+/* cells are the single hit target, so a click anywhere on a piece falls
+   through to the square underneath */
+.piece {
+  pointer-events: none;
+}
+
+.level-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.level-pill {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+.level-name {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.goal {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.goal-tag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: rgba(177, 98, 77, .12);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.back {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.back:hover { text-decoration: underline; }
+
+.panel .status.win { color: #2f7d4f; }
+.panel .status.lose { color: var(--red); }
+
+.moves li.cur { color: var(--red-deep); font-weight: 600; }
+
+/* ---------------------------------------------------------------- run HUD */
+
+.hud {
+  display: grid;
+  gap: 6px;
+}
+
+.hud-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hud-label {
+  flex: none;
+  width: 34px;
+  font-size: 12px;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+
+.hud-armor {
+  color: var(--red);
+  letter-spacing: .1em;
+  font-size: 14px;
+}
+
+.hud-army {
+  color: var(--text);
+  letter-spacing: .08em;
+  font-size: 14px;
+}
+
+.hud-build {
+  color: var(--text);
+  word-break: break-word;
+}
+
+.hud-build.muted { color: var(--muted); }
+
+.hud-gold {
+  color: #a5791c;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.hud-items {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: .04em;
+}
+
+.hud-items:not(:empty)::before { content: '· '; }
+
+/* ---------------------------------------------------------------- shop */
+
+.card-price {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #a5791c;
+}
+
+.card[disabled] {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.card[disabled] .card-price { color: var(--muted); }
+
+.shop-gold {
+  font-size: 15px;
+  font-weight: 600;
+  color: #a5791c;
+}
+
+/* --------------------------------------------------------------- toast */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  padding: 9px 18px;
+  border-radius: 999px;
+  background: rgba(46, 34, 26, .92);
+  color: #fdf8f1;
+  font-size: 13px;
+  letter-spacing: .04em;
+  box-shadow: 0 8px 24px rgba(46, 34, 26, .28);
+  z-index: 50;
+  pointer-events: none;
+}
+
+button.danger { color: var(--red); }
+
+/* --------------------------------------------------------------- overlay */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(38, 28, 24, .48);
+  backdrop-filter: blur(3px);
+  animation: ov-in .18s ease;
+}
+
+.overlay[hidden] { display: none; }
+
+@keyframes ov-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.sheet {
+  width: min(680px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 26px 26px 22px;
+  border-radius: 16px;
+  background: var(--panel, #fbf7f1);
+  box-shadow: 0 24px 60px rgba(40, 26, 20, .28);
+  animation: sheet-in .22s cubic-bezier(.2, .8, .3, 1);
+}
+
+.sheet.wide { width: min(880px, 100%); }
+
+.sheet > .sheet-kicker,
+.sheet > .sheet-title,
+.sheet > .sheet-sub { flex: none; }
+
+@keyframes sheet-in {
+  from { transform: translateY(10px) scale(.98); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.sheet-kicker {
+  margin: 0 0 4px;
+  font-size: 12px;
+  letter-spacing: .12em;
+  color: var(--accent);
+}
+
+.sheet-title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.sheet-sub {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.cards {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.sheet.wide .cards {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  align-content: start;
+}
+
+.card {
+  display: grid;
+  gap: 3px;
+  padding: 13px 15px;
+  text-align: left;
+  border: 1px solid rgba(120, 90, 70, .22);
+  border-radius: 11px;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color .14s ease, transform .14s ease, box-shadow .14s ease;
+}
+
+.card:hover,
+.card:focus-visible {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(120, 90, 70, .16);
+  outline: none;
+}
+
+.card-tag {
+  font-size: 11px;
+  letter-spacing: .08em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.card-desc {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.card-tier { border-left: 3px solid var(--accent); }
+.card-passive { border-left: 3px solid #5d8a6b; }
+.card-risk {
+  border-left: 3px solid var(--red);
+  background: #fdf4f2;
+}
+
+.card-risk .card-tag { color: var(--red); }
+
+.sheet-foot {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+  flex: none;
+}
+
+.sheet-foot:empty { display: none; }

@@ -1,0 +1,438 @@
+:root {
+  --bg: #efeae0;
+  --bg-2: #e7e1d5;
+  --panel: #fffdf9;
+  --line: #e4dbca;
+  --text: #2b2620;
+  --muted: #8b7d6a;
+  --red: #c0392b;
+  --red-deep: #a93226;
+  --accent: #b1624d;
+
+  /* board frame line, sampled from the site's own board art */
+  --frame: #a45f1e;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: radial-gradient(120% 90% at 50% 0, var(--bg) 0, var(--bg-2) 100%);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  display: flex;
+  gap: 20px;
+  align-items: stretch;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 20px;
+  min-height: 100%;
+}
+
+/* ---------- board ---------- */
+
+.board-area {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.board-shell {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.board {
+  position: relative;
+  /* proportions of the live board: wooden plate 475 x 545.5, pieces fully inside it */
+  width: min(100%, calc((100vh - 130px) * 475 / 546));
+  aspect-ratio: 475 / 546;
+  border-radius: 6px;
+  border: 2px solid var(--frame);
+  background: url("assets/board/wooden-board-bg.svg") center / cover no-repeat, #f4e6d0;
+  box-shadow: 0 14px 34px rgba(90, 62, 30, .3);
+  touch-action: manipulation;
+  user-select: none;
+  container-type: size;
+}
+
+.board-grid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* The 9x10 intersection area: 35px / 475px and 45px / 545px of margin on the live
+   plate, which keeps the eight files of square cells and leaves room for the discs. */
+.grid {
+  position: absolute;
+  inset: 8.3% 7.37%;
+  z-index: 1;
+}
+
+/* 1–9 sit in the wooden margin between the frame and the outer grid line, and
+   paint underneath the pieces in case a wide glyph ever reaches them. */
+.coords {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 7.37%;
+  right: 7.37%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.coord {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  font-size: 3.37cqw;
+  font-weight: 600;
+  line-height: 1;
+  color: #e2a267;
+  pointer-events: none;
+}
+
+/* centred in the 4.13% tall margin strip that the 0.9-cell discs leave free:
+   (8.3% grid inset) - (0.45 cell = 4.17%) => 2.07% from each board edge */
+.coord.top { top: 2.1%; }
+.coord.bottom { top: 97.9%; }
+
+.layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ---------- hit cells ---------- */
+
+.cell {
+  position: absolute;
+  width: 12.5%;
+  height: 11.1111%;
+  transform: translate(-50%, -50%);
+  border-radius: 8px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.cell:hover { background: rgba(120, 80, 30, .07); }
+
+/* ---------- pieces ---------- */
+
+.piece {
+  position: absolute;
+  width: 11.24%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  pointer-events: auto;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+  filter: drop-shadow(0 1px 2px rgba(70, 40, 15, .38));
+  transition: filter .12s ease, transform .08s ease;
+}
+
+/* the sliding clone that carries a piece from one intersection to the next */
+.piece.sliding {
+  z-index: 3;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 5px rgba(70, 40, 15, .34));
+}
+
+/* The site's calligraphic glyphs share a 40 x 44 view box; stretching them with
+   `object-fit: fill` into a 55% x 60.5% box of the disc is what the live board
+   does, and it keeps 士/仕/兵/卒 from looking flattened. */
+.piece img {
+  width: 55%;
+  height: 60.5%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+/* discs are the site's own red/black lacquered piece plates (73x73) */
+.piece.r { background-image: url("assets/board/red-wooden-piece-bg.svg"); }
+.piece.b { background-image: url("assets/board/black-wooden-piece-bg.svg"); }
+
+.piece:hover { filter: drop-shadow(0 1px 2px rgba(70, 40, 15, .38)) brightness(1.07); }
+
+.piece.sel {
+  filter: drop-shadow(0 0 5px rgba(255, 200, 110, .95)) brightness(1.1) saturate(1.08);
+}
+
+/* ---------- move marks ---------- */
+
+.mark {
+  position: absolute;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.mark.dot {
+  width: 3.4%;
+  aspect-ratio: 1;
+  background: rgba(30, 110, 65, .55);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .5);
+}
+
+.mark.cap {
+  width: 11.6%;
+  aspect-ratio: 1;
+  box-shadow: inset 0 0 0 4px rgba(30, 110, 65, .7);
+}
+
+.mark.from {
+  width: 3.9%;
+  aspect-ratio: 1;
+  background: #f68d4c;
+}
+
+.mark.to {
+  width: 12.1%;
+  aspect-ratio: 1;
+  box-shadow: 0 0 0 2.5px #f68d4c;
+}
+
+.mark.check {
+  width: 12.6%;
+  aspect-ratio: 1;
+  background: radial-gradient(circle, rgba(220, 60, 45, .6), rgba(220, 60, 45, 0) 70%);
+}
+
+.hint-arrow {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* ---------- score bar ---------- */
+
+.scorebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.scorebar .side.is-turn { color: var(--text); font-weight: 600; }
+.scorebar .side.red.is-turn { color: var(--red); }
+
+.scorebar .bar {
+  flex: 1 1 auto;
+  height: 8px;
+  border-radius: 999px;
+  background: #ded4c2;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  width: 50%;
+  background: linear-gradient(90deg, #4a4a4a, #9c9c9c);
+  transition: width .3s ease;
+}
+
+.eval {
+  font-variant-numeric: tabular-nums;
+  min-width: 62px;
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ---------- panel ---------- */
+
+.panel {
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 28px rgba(120, 95, 60, .14);
+  max-height: calc(100vh - 40px);
+}
+
+.panel-head h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: .18em;
+  color: var(--accent);
+}
+
+.status {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  min-height: 18px;
+}
+
+.group { display: flex; flex-direction: column; gap: 8px; }
+.group.grow { flex: 1 1 auto; min-height: 90px; overflow: hidden; }
+
+.label {
+  font-size: 12px;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+
+.opponent { display: flex; align-items: center; gap: 10px; }
+
+.side-tag {
+  flex: none;
+  width: 20px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.side-tag.red { color: var(--red); }
+.side-tag.black { color: #4a4a4a; }
+
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #efe7d8;
+  flex: none;
+}
+
+select, input, button {
+  font: inherit;
+  color: inherit;
+}
+
+select {
+  flex: 1 1 auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fffdf9;
+  outline: none;
+}
+
+select:focus, input:focus { border-color: var(--accent); }
+
+.buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+button {
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #f7f2e8;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, transform .06s ease;
+}
+
+button:hover:not(:disabled) { background: #f1e9da; border-color: #d6c8b0; }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: .45; cursor: default; }
+
+button.primary {
+  background: linear-gradient(180deg, #cb4a39, var(--red-deep));
+  border-color: #92301f;
+  color: #fff6ea;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) { background: linear-gradient(180deg, #d65b48, #b53724); }
+
+button.ghost { background: transparent; }
+
+button.on {
+  background: rgba(177, 98, 77, .14);
+  border-color: var(--accent);
+  color: var(--red-deep);
+}
+
+.moves {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 6px 8px 6px 34px;
+  overflow-y: auto;
+  border-radius: 8px;
+  background: #fbf7ee;
+  border: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.moves li::marker { color: var(--muted); font-size: 11px; }
+.moves li.r { color: #a93226; }
+.moves li.b { color: #333; }
+.moves li.last { font-weight: 700; }
+
+.engine { gap: 6px; }
+
+.engine-line {
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.fen-row { display: flex; gap: 6px; }
+
+.fen-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fffdf9;
+  outline: none;
+  font-size: 11px;
+}
+
+.fen-row button { padding: 7px 10px; font-size: 12px; }
+
+@media (max-width: 900px) {
+  .app { flex-direction: column; padding: 12px; gap: 12px; }
+  .panel { flex: none; max-height: none; }
+  .board { width: min(calc(100% - 28px), 560px); }
+  .group.grow { min-height: 120px; max-height: 180px; }
+}
+
+/* link from the classic panel into the roguelike prototype */
+.rogue-link {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.rogue-link:hover { text-decoration: underline; }
