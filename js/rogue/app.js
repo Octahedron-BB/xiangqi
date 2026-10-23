@@ -181,7 +181,14 @@ function updateHud() {
   armyEl.textContent = describeArmy(run);
   goldEl.textContent = String(run.gold);
   const undos = itemCount(run, 'undo');
-  itemsEl.textContent = undos ? `悔棋符 ×${undos}` : '';
+  const retries = itemCount(run, 'retry');
+  const parts = [];
+  if (retries) parts.push(`重开符 ×${retries}`);
+  if (undos) parts.push(`悔棋符 ×${undos}`);
+  itemsEl.textContent = parts.join(' · ') || '用完了';
+  itemsEl.classList.toggle('muted', parts.length === 0);
+  btnRetry.textContent = `重开本关 ×${retries}`;
+  btnRetry.disabled = retries === 0;
   btnUndo.textContent = `悔棋符 ×${undos}`;
   btnUndo.disabled = undos === 0;
   const summary = describeBuild(run);
@@ -728,12 +735,18 @@ cellsLayer.addEventListener('click', (ev) => {
 });
 
 btnRetry.addEventListener('click', () => {
-  if (busy) return;
-  hideOverlay();
-  // Saving and reloading is allowed, so restarting a stage rewinds the army the
-  // same way an armour save does. The cost is that the stage pays no gold twice
-  // and its table reinforcements were already granted.
+  if (busy || !overlayEl.hidden) return;
+  if (itemCount(run, 'retry') <= 0) {
+    toast('没有重开符了，补给铺里能买');
+    return;
+  }
+  // A retry hands the stage-entry army back, so it costs a token rather than
+  // being free; armour (spent on defeat) is the other, rarer route to the same
+  // rewind. Gold and the stage's table reinforcements are still one-shot.
+  takeItem(run, 'retry');
   startLevel(run.level, { rewind: true });
+  updateHud();
+  toast('退回本关开始');
 });
 
 btnUndo.addEventListener('click', useUndo);

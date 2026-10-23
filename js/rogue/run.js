@@ -48,8 +48,9 @@ export function createRun() {
     status: 'playing', // playing | cleared | dead
     // coin purse earned by finishing stages quickly; spent in the shop
     gold: 0,
-    // consumables, e.g. { undo: 2 }
-    items: {},
+    // consumables. A retry is worth more than an undo because it also hands the
+    // stage-entry army back, so it costs more and there are fewer of them.
+    items: { retry: 3, undo: 3 },
     // stages whose table reinforcements were already handed out, so restarting a
     // stage cannot farm them
     granted: new Set(),
@@ -113,7 +114,7 @@ export function deserializeRun(data) {
   run.passives = { ...(data.passives ?? {}) };
   run.armor = data.armor | 0;
   run.gold = data.gold | 0;
-  run.items = { ...(data.items ?? {}) };
+  run.items = { retry: 3, undo: 3, ...(data.items ?? {}) };
   run.extraBlackPawns = data.extraBlackPawns | 0;
   run.pending = 0; // always resume at the start of a stage, nothing owed
   run.status = 'playing';

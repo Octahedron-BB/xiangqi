@@ -25,6 +25,11 @@ export const SHOP_GOODS = {
     price: 14,
     desc: '用一次退回上一步。每张符用一次就没了。',
   },
+  retry: {
+    name: '重开符',
+    price: 26,
+    desc: '用一次退回本关开局，部队也回到本关开始时的样子。',
+  },
   armor: {
     name: '帅护甲',
     price: 30,
@@ -86,6 +91,16 @@ export function buildShop(run) {
     title: `${SHOP_GOODS.undo.name} ×1`,
     desc: SHOP_GOODS.undo.desc,
     price: SHOP_GOODS.undo.price,
+  });
+
+  stock.push({
+    key: 'item:retry',
+    kind: 'item',
+    id: 'retry',
+    tag: '道具',
+    title: `${SHOP_GOODS.retry.name} ×1`,
+    desc: SHOP_GOODS.retry.desc,
+    price: SHOP_GOODS.retry.price,
   });
 
   return stock;

@@ -116,7 +116,14 @@ async function main() {
 
       // --- 1. fresh HUD
       R.startLevel(0, true);
-      out.freshHud = { gold: text('gold'), undo: text('btnUndo'), disabled: document.getElementById('btnUndo').disabled };
+      out.freshHud = {
+        gold: text('gold'),
+        retry: text('btnRetry'),
+        undo: text('btnUndo'),
+        retryDisabled: document.getElementById('btnRetry').disabled,
+        undoDisabled: document.getElementById('btnUndo').disabled,
+        items: text('items'),
+      };
 
       // --- 2. gold = base + 2 per ply saved against par
       R.startLevel(0, true);
@@ -129,18 +136,40 @@ async function main() {
 
       // --- 3. undo costs a token
       R.startLevel(0, true);
-      R.run.gold = 0;
-      R.run.items = { undo: 1 };
-      document.getElementById('btnUndo').disabled = false;
-      R.useUndo();
-      out.undoEmpty = { items: JSON.stringify(R.run.items ?? {}) };
-      R.run.items = { undo: 2 };
+      R.run.items = { retry: 0, undo: 0 };
       R.moveBoth(27, 36); // pawn a3 -> a4
-      const before = R.pos.board[36];
+      const pawnAt36 = R.pos.board[36];
+      R.useUndo();        // no token: nothing happens
+      out.undoEmpty = { stillThere: R.pos.board[36] === pawnAt36, items: JSON.stringify(R.run.items) };
+      R.run.items = { retry: 0, undo: 2 };
       R.useUndo();
       out.undoUsed = { tokenLeft: R.run.items.undo ?? 0, pawnBack: R.pos.board[36] === 0 && R.pos.board[27] !== 0 };
       R.hideOverlay();
 
+      // --- 3b. retry costs a token and hands the stage-entry army back
+      R.run.items = { retry: 2, undo: 0 };
+      R.startLevel(0, true);          // re-renders the HUD with 2 tokens
+      R.run.roster = ['k'];           // pretend this attempt went badly
+      R.pos.make((27 << 8) | 36);     // raw make: no win/lose check, no overlay
+      out.retryPre = {
+        items: JSON.stringify(R.run.items),
+        disabled: document.getElementById('btnRetry').disabled,
+        overlayHidden: document.getElementById('overlay').hidden,
+        text: text('btnRetry'),
+      };
+      document.getElementById('btnRetry').click();
+      await new Promise((r2) => setTimeout(r2, 80));
+      out.retryUse = {
+        left: R.run.items.retry ?? 0,
+        roster: R.run.roster.join(''),
+        hud: text('btnRetry'),
+        moves: document.getElementById('moves').children.length,
+      };
+      R.run.items = { retry: 0, undo: 0 };
+      R.startLevel(0, true);
+      document.getElementById('btnRetry').click();
+      out.retryEmpty = { disabled: document.getElementById('btnRetry').disabled, roster: R.run.roster.join('') };
+      R.hideOverlay();
       // --- 4. shop opens after stage 5 and sells for gold
       R.run = R.run; // keep
       R.startLevel(4, true); // stage 5
@@ -247,13 +276,18 @@ async function main() {
     console.log(JSON.stringify(r, null, 1));
     console.log('');
 
-    check('fresh HUD shows 0 gold and no charm', r.freshHud.gold === '0' && /×0/.test(r.freshHud.undo) && r.freshHud.disabled,
+    check('fresh run starts with 3 retries and 3 undos',
+      /×3/.test(r.freshHud.retry) && /×3/.test(r.freshHud.undo) &&
+      !r.freshHud.retryDisabled && !r.freshHud.undoDisabled && r.freshHud.gold === '0',
       JSON.stringify(r.freshHud));
     check('a clear pays gold', r.goldWin.gold > 0, JSON.stringify(r.goldWin));
-    check('using undo with no charm does nothing', !r.undoEmpty.hasOwnProperty('undo') || r.undoEmpty.items === '{}',
-      r.undoEmpty.items);
+    check('using undo with no charm does nothing', r.undoEmpty.stillThere, JSON.stringify(r.undoEmpty));
     check('undo spends a charm and rewinds the move', r.undoUsed.tokenLeft === 1 && r.undoUsed.pawnBack,
       JSON.stringify(r.undoUsed));
+    check('retry spends a token and restores the stage-entry army',
+      r.retryUse.left === 1 && r.retryUse.roster === 'krpp' && r.retryUse.moves === 0,
+      JSON.stringify(r.retryUse));
+    check('retry is disabled at zero tokens', r.retryEmpty.disabled === true, JSON.stringify(r.retryEmpty));
     check('shop opens after stage 5', r.shop.open && r.shop.cards > 0, JSON.stringify(r.shop));
     check('shop shows prices', r.shop.prices.every((p) => p && /金/.test(p)), JSON.stringify(r.shop.prices));
     check('buying spends gold and changes the run',
