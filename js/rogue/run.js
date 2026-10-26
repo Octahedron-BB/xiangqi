@@ -49,6 +49,7 @@ export function createRun() {
     extraBlackPawns: 0,
     // how many reward screens are still owed (a 血酬 pays two up front)
     pending: 0,
+    bloodPriceChosenThisRound: false,
     status: 'playing', // playing | cleared | dead
     // coin purse earned by finishing stages quickly; spent in the shop
     gold: 0,
@@ -105,6 +106,7 @@ export function serializeRun(run) {
     items: { ...run.items },
     extraBlackPawns: run.extraBlackPawns,
     pending: run.pending,
+    bloodPriceChosenThisRound: !!run.bloodPriceChosenThisRound,
     status: run.status,
     granted: [...run.granted],
     shopsSeen: [...run.shopsSeen],
@@ -126,6 +128,7 @@ export function deserializeRun(data) {
   run.gold = data.gold | 0;
   run.items = { retry: 3, undo: 3, ...(data.items ?? {}) };
   run.extraBlackPawns = data.extraBlackPawns | 0;
+  run.bloodPriceChosenThisRound = !!data.bloodPriceChosenThisRound;
   run.pending = 0; // always resume at the start of a stage, nothing owed
   run.status = 'playing';
   run.granted = new Set(data.granted ?? []);

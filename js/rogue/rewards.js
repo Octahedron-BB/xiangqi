@@ -350,7 +350,8 @@ export function drawRewards(run, opts = {}) {
     picks.push(taken);
   }
   // The gamble is not always on the menu, otherwise it stops feeling like a choice.
-  if (picks.length > 1 && rand() < 0.4) {
+  // Can only be chosen at most once per reward round.
+  if (picks.length > 1 && !run.bloodPriceChosenThisRound && rand() < 0.4) {
     picks[picks.length - 1] = {
       key: 'risk:bloodprice',
       kind: 'risk',
@@ -388,6 +389,7 @@ export function applyReward(run, choice) {
   if (choice.kind === 'risk') {
     run.pending += 2;
     run.extraBlackPawns += 1;
+    run.bloodPriceChosenThisRound = true;
     return;
   }
   if (choice.kind === 'item') {

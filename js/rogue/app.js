@@ -290,6 +290,7 @@ function startLevel(index, opts = {}) {
   run.level = index;
   level = LEVELS[index];
   epoch++;
+  run.bloodPriceChosenThisRound = false;
 
   // Auto deploy from reserves before checking roster
   autoDeployFromReserves(run);
@@ -778,6 +779,7 @@ function win(reason) {
     showEnding();
     return;
   }
+  run.bloodPriceChosenThisRound = false;
   run.pending += 1;
   openRewards(pay);
 }
@@ -820,6 +822,7 @@ function lose(reason) {
 /* ------------------------------------------------------------- rewards */
 
 function afterStage() {
+  run.bloodPriceChosenThisRound = false;
   const lv = LEVELS[run.level];
   if (lv.shop && !run.shopsSeen.has(run.level)) {
     run.shopsSeen.add(run.level);
