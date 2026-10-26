@@ -4,6 +4,9 @@
 
 包含 **「经典博弈」**、**「劫棋演义（Roguelike 肉鸽战役）」** 与 **「自由演武沙盒」** 三大独立模式。
 
+> 🌐 **在线即开即玩**：[https://octahedron-bb.github.io/xiangqi/](https://octahedron-bb.github.io/xiangqi/)  
+> 随时随地，无需下载安装，手机与电脑浏览器点开秒玩！
+
 ---
 
 ## ✨ 核心特色
@@ -23,12 +26,20 @@
 
 ---
 
-## 🚀 快速开始
+## 🚀 在线试玩与本地运行
 
-### 依赖要求
+### 🌐 在线体验 (GitHub Pages)
+
+- **🎋 经典博弈**：[https://octahedron-bb.github.io/xiangqi/](https://octahedron-bb.github.io/xiangqi/)
+- **⚔️ 劫棋演义（Roguelike 肉鸽）**：[https://octahedron-bb.github.io/xiangqi/rogue.html](https://octahedron-bb.github.io/xiangqi/rogue.html)
+- **🛠️ 自由演武沙盒**：[https://octahedron-bb.github.io/xiangqi/debug.html](https://octahedron-bb.github.io/xiangqi/debug.html)
+
+### 💻 本地运行
+
+#### 依赖要求
 - Node.js >= 16
 
-### 启动运行
+#### 启动命令
 
 ```bash
 # 启动本地轻量服务器
