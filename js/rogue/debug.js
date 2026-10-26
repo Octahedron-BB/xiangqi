@@ -46,7 +46,12 @@ const selectPresetLevel = el('selectPresetLevel');
 const btnLoadPreset = el('btnLoadPreset');
 const btnStandardXiangqi = el('btnStandardXiangqi');
 const btnClearBoard = el('btnClearBoard');
-const btnMaxTiers = el('btnMaxTiers');
+const btnMaxTiersA = el('btnMaxTiersA');
+const btnMaxTiersB = el('btnMaxTiersB');
+const btnResetTiers = el('btnResetTiers');
+const btnBlackMaxTiersA = el('btnBlackMaxTiersA');
+const btnBlackMaxTiersB = el('btnBlackMaxTiersB');
+const btnBlackResetTiers = el('btnBlackResetTiers');
 const fenInput = el('fenInput');
 const btnApplyFen = el('btnApplyFen');
 const btnCopyFen = el('btnCopyFen');
@@ -650,6 +655,7 @@ function initButtons() {
   btnStandardXiangqi.addEventListener('click', () => {
     pos = new Position(START_FEN);
     syncRelicsToPos();
+    syncTiersUI();
     history = [];
     plies = [];
     lastMove = null;
@@ -675,15 +681,47 @@ function initButtons() {
     toast('已清空盘面（保留将帅）');
   });
 
-  btnMaxTiers.addEventListener('click', () => {
+  function setMaxTiers(side, targetBranch = 'A') {
     for (const [type, opts] of Object.entries(TIER_DEFS)) {
       const idx = letterIndex(type);
-      if (idx) pos.tier[RED][idx] = opts.length - 1;
+      if (!idx) continue;
+      const matching = opts.filter((o) => o.branch === targetBranch);
+      const chosenOpt = matching.length ? matching[matching.length - 1] : opts[opts.length - 1];
+      pos.tier[side][idx] = chosenOpt.tier;
+      pos.branch[side][idx] = chosenOpt.branch;
     }
     syncTiersUI();
     updateEval();
-    toast('红方所有兵种已升级至最高档！');
-  });
+    if (selected !== null) {
+      targets = pos.legalMoves([]).filter((m) => (m >> 8) === selected).map((m) => m & 255);
+      renderMarks();
+    }
+    toast(`${side === RED ? '红' : '黑'}方兵种已全部设为【路线${targetBranch === 'A' ? '甲' : '乙'}满级】！`);
+  }
+
+  function resetTiers(side) {
+    for (const type of Object.keys(TIER_DEFS)) {
+      const idx = letterIndex(type);
+      if (!idx) continue;
+      pos.tier[side][idx] = 0;
+      pos.branch[side][idx] = 'A';
+    }
+    syncTiersUI();
+    updateEval();
+    if (selected !== null) {
+      targets = pos.legalMoves([]).filter((m) => (m >> 8) === selected).map((m) => m & 255);
+      renderMarks();
+    }
+    toast(`${side === RED ? '红' : '黑'}方兵种已重置为 T0 标准走法`);
+  }
+
+  btnMaxTiersA?.addEventListener('click', () => setMaxTiers(RED, 'A'));
+  btnMaxTiersB?.addEventListener('click', () => setMaxTiers(RED, 'B'));
+  btnResetTiers?.addEventListener('click', () => resetTiers(RED));
+
+  btnBlackMaxTiersA?.addEventListener('click', () => setMaxTiers(BLACK, 'A'));
+  btnBlackMaxTiersB?.addEventListener('click', () => setMaxTiers(BLACK, 'B'));
+  btnBlackResetTiers?.addEventListener('click', () => resetTiers(BLACK));
 
   btnApplyFen.addEventListener('click', () => {
     const str = fenInput.value.trim();
@@ -691,6 +729,7 @@ function initButtons() {
     try {
       pos.load(str);
       syncRelicsToPos();
+      syncTiersUI();
       resyncKings();
       selected = null;
       targets = [];

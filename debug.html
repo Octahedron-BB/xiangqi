@@ -229,7 +229,11 @@
     <div class="debug-section-card">
       <div class="debug-sec-head">
         <span>红方走法等级 (Tier)</span>
-        <button class="dbg-sm-btn" id="btnMaxTiers" type="button" style="font-size:11px">一键满级</button>
+        <div style="display:flex;gap:4px">
+          <button class="dbg-sm-btn" id="btnMaxTiersA" type="button" style="font-size:11px" title="所有红子升至路线甲最高档">满级(甲)</button>
+          <button class="dbg-sm-btn" id="btnMaxTiersB" type="button" style="font-size:11px" title="所有红子升至路线乙最高档">满级(乙)</button>
+          <button class="dbg-sm-btn" id="btnResetTiers" type="button" style="font-size:11px" title="重置红方为T0标准走法">重置T0</button>
+        </div>
       </div>
       <div class="tiers-container" id="redTiersContainer"></div>
     </div>
@@ -238,6 +242,11 @@
     <div class="debug-section-card">
       <div class="debug-sec-head">
         <span>黑方走法等级 (Boss 特权测试)</span>
+        <div style="display:flex;gap:4px">
+          <button class="dbg-sm-btn" id="btnBlackMaxTiersA" type="button" style="font-size:11px" title="所有黑子升至路线甲最高档">满级(甲)</button>
+          <button class="dbg-sm-btn" id="btnBlackMaxTiersB" type="button" style="font-size:11px" title="所有黑子升至路线乙最高档">满级(乙)</button>
+          <button class="dbg-sm-btn" id="btnBlackResetTiers" type="button" style="font-size:11px" title="重置黑方为T0标准走法">重置T0</button>
+        </div>
       </div>
       <div class="tiers-container" id="blackTiersContainer"></div>
     </div>
