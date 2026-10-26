@@ -10,7 +10,7 @@ import { chooseMove, evaluate } from './ai.js';
 import { LEVELS } from './levels.js';
 import { createRun, positionFor, letterIndex } from './run.js';
 import { chineseNotation } from '../notation.js';
-import { PIECE_CN, RELICS } from './rewards.js';
+import { PIECE_CN, RELICS, TIERS } from './rewards.js';
 
 const PIECE_FILE = { k: 'king', a: 'advisor', b: 'elephant', n: 'horse', r: 'rook', c: 'cannon', p: 'pawn' };
 
@@ -56,6 +56,7 @@ const fenInput = el('fenInput');
 const btnApplyFen = el('btnApplyFen');
 const btnCopyFen = el('btnCopyFen');
 const currentToolTip = el('currentToolTip');
+const dbgHandbookBody = el('dbgHandbookBody');
 
 let pos = new Position(START_FEN);
 let selected = null;
@@ -504,50 +505,50 @@ function renderPalette() {
 
 const TIER_DEFS = {
   p: [
-    { label: 'T0 标准', tier: 0, branch: 'A' },
-    { label: '甲T1 冲两格', tier: 1, branch: 'A' },
-    { label: '甲T2 横行', tier: 2, branch: 'A' },
-    { label: '甲T3 王步(八方)', tier: 3, branch: 'A' },
-    { label: '乙T1 横行疾步', tier: 1, branch: 'B' },
-    { label: '乙T2 金戈斜刺', tier: 2, branch: 'B' },
-    { label: '乙T3 神兵破阵', tier: 3, branch: 'B' },
+    { label: 'T0 标准', tier: 0, branch: 'A', desc: '向前直走一格' },
+    { label: '甲T1 冲两格', tier: 1, branch: 'A', desc: '【陷阵】兵可一次向前走两格（中间需为空）' },
+    { label: '甲T2 横行', tier: 2, branch: 'A', desc: '【陷阵】兵未过河也可左右横走一格' },
+    { label: '甲T3 王步(八方)', tier: 3, branch: 'A', desc: '【陷阵】兵过河后可向周围八方任意走一格（进退自如）' },
+    { label: '乙T1 横行疾步', tier: 1, branch: 'B', desc: '【战阵】未过河即可横走，且横走可走 1~2 格' },
+    { label: '乙T2 金戈斜刺', tier: 2, branch: 'B', desc: '【战阵】可向四条斜线（斜前、斜后）任意斜走一格' },
+    { label: '乙T3 神兵破阵', tier: 3, branch: 'B', desc: '【战阵】向前可冲两格，且吃子额外奖励 +3 金币' },
   ],
   c: [
-    { label: 'T0 标准', tier: 0, branch: 'A' },
-    { label: '甲T1 隔二子', tier: 1, branch: 'A' },
-    { label: '甲T2 隔三子', tier: 2, branch: 'A' },
-    { label: '甲T3 贯通炮', tier: 3, branch: 'A' },
-    { label: '乙T1 近身免架', tier: 1, branch: 'B' },
-    { label: '乙T2 翻山游击', tier: 2, branch: 'B' },
-    { label: '乙T3 自充炮台', tier: 3, branch: 'B' },
+    { label: 'T0 标准', tier: 0, branch: 'A', desc: '直线任意格，隔一子炮架吃子' },
+    { label: '甲T1 隔二子', tier: 1, branch: 'A', desc: '【重炮】可跳过两个子吃（不能隔两子将军）' },
+    { label: '甲T2 隔三子', tier: 2, branch: 'A', desc: '【重炮】可跳过三个子吃（不能隔三子将军）' },
+    { label: '甲T3 贯通炮', tier: 3, branch: 'A', desc: '【重炮】隔子数量无上限，只要有炮架即可超远轰击' },
+    { label: '乙T1 近身免架', tier: 1, branch: 'B', desc: '【神火】紧邻的敌子不用炮架也能直接吃' },
+    { label: '乙T2 翻山游击', tier: 2, branch: 'B', desc: '【神火】炮即使不吃子，也可以跳过 1 个棋子位移' },
+    { label: '乙T3 自充炮台', tier: 3, branch: 'B', desc: '【神火】只要炮紧邻己方任意棋子，开火无需中途炮架' },
   ],
   n: [
-    { label: 'T0 标准', tier: 0, branch: 'A' },
-    { label: '甲T1 不蹩腿', tier: 1, branch: 'A' },
-    { label: '甲T2 走目', tier: 2, branch: 'A' },
-    { label: '甲T3 天马(走田)', tier: 3, branch: 'A' },
-    { label: '乙T1 斜步', tier: 1, branch: 'B' },
-    { label: '乙T2 近身刺', tier: 2, branch: 'B' },
-    { label: '乙T3 连环步', tier: 3, branch: 'B' },
+    { label: 'T0 标准', tier: 0, branch: 'A', desc: '走日字，受马腿阻挡' },
+    { label: '甲T1 不蹩腿', tier: 1, branch: 'A', desc: '【天马】马腿被挡住也照样能走' },
+    { label: '甲T2 走目', tier: 2, branch: 'A', desc: '【天马】额外可走八个目字远跳点 (±1,±3)/(±3,±1)' },
+    { label: '甲T3 天马(走田)', tier: 3, branch: 'A', desc: '【天马】额外可走「田」字 (±2,±2)，不塞眼且可过河' },
+    { label: '乙T1 斜步', tier: 1, branch: 'B', desc: '【铁骑】马额外可沿四角斜走一格' },
+    { label: '乙T2 近身刺', tier: 2, branch: 'B', desc: '【铁骑】马额外可沿正方向（上下左右）直走一格' },
+    { label: '乙T3 连环步', tier: 3, branch: 'B', desc: '【铁骑】马移动若未吃子，可选择待命或再斜走一步' },
   ],
   r: [
-    { label: 'T0 标准', tier: 0, branch: 'A' },
-    { label: '甲T1 斜一步', tier: 1, branch: 'A' },
-    { label: '甲T2 斜两格', tier: 2, branch: 'A' },
-    { label: '甲T3 神后(斜滑行)', tier: 3, branch: 'A' },
-    { label: '乙T1 贯石(跃友军)', tier: 1, branch: 'B' },
-    { label: '乙T2 隔子冲杀', tier: 2, branch: 'B' },
-    { label: '乙T3 雷霆万钧', tier: 3, branch: 'B' },
+    { label: 'T0 标准', tier: 0, branch: 'A', desc: '直线任意格滑行' },
+    { label: '甲T1 斜一步', tier: 1, branch: 'A', desc: '【神后】车额外可沿四条斜线各走一格' },
+    { label: '甲T2 斜两格', tier: 2, branch: 'A', desc: '【神后】车额外可沿四条斜线走一至两格（可被阻挡）' },
+    { label: '甲T3 神后(斜滑行)', tier: 3, branch: 'A', desc: '【神后】车额外可沿四条斜线任意滑行 —— 化身「后」' },
+    { label: '乙T1 贯石(跃友军)', tier: 1, branch: 'B', desc: '【重辇】车直线冲锋时，可跃过 1 个友军继续直线滑行' },
+    { label: '乙T2 隔子冲杀', tier: 2, branch: 'B', desc: '【重辇】车直线冲锋时，可越过 1 个敌子直接吃其后方的敌子' },
+    { label: '乙T3 雷霆万钧', tier: 3, branch: 'B', desc: '【重辇】直线滑行超过4格吃子后，可待命或再走一步' },
   ],
   a: [
-    { label: 'T0 标准', tier: 0, branch: 'A' },
-    { label: 'T1 斜两格', tier: 1, branch: 'A' },
-    { label: 'T2 出宫', tier: 2, branch: 'A' },
+    { label: 'T0 标准', tier: 0, branch: 'A', desc: '九宫内斜走一格' },
+    { label: 'T1 斜两格', tier: 1, branch: 'A', desc: '九宫内可以斜走两格' },
+    { label: 'T2 出宫', tier: 2, branch: 'A', desc: '可以沿斜线滑行，不再受九宫限制' },
   ],
   b: [
-    { label: 'T0 标准', tier: 0, branch: 'A' },
-    { label: 'T1 不塞眼', tier: 1, branch: 'A' },
-    { label: 'T2 过河', tier: 2, branch: 'A' },
+    { label: 'T0 标准', tier: 0, branch: 'A', desc: '走田字，塞象眼不能走，不可过河' },
+    { label: 'T1 不塞眼', tier: 1, branch: 'A', desc: '象眼被挡住也能走' },
+    { label: 'T2 过河', tier: 2, branch: 'A', desc: '可以越过河界且不塞象眼' },
   ],
 };
 
@@ -556,8 +557,13 @@ function buildTiersUI(container, side) {
   for (const [type, options] of Object.entries(TIER_DEFS)) {
     const wrap = document.createElement('div');
     wrap.className = 'tier-row';
-    const label = document.createElement('span');
+
+    const head = document.createElement('div');
+    head.className = 'tier-row-head';
+
+    const label = document.createElement('label');
     label.textContent = PIECE_CN[type] || type;
+
     const select = document.createElement('select');
     select.dataset.side = side;
     select.dataset.pieceType = type;
@@ -567,6 +573,13 @@ function buildTiersUI(container, side) {
       elOpt.textContent = opt.label;
       select.appendChild(elOpt);
     });
+
+    head.append(label, select);
+
+    const descEl = document.createElement('div');
+    descEl.className = 'tier-effect-desc';
+    descEl.textContent = options[0]?.desc || '';
+
     select.addEventListener('change', () => {
       const opt = options[select.selectedIndex];
       const idx = letterIndex(type);
@@ -574,6 +587,7 @@ function buildTiersUI(container, side) {
         pos.tier[side][idx] = opt.tier;
         pos.branch[side][idx] = opt.branch;
       }
+      descEl.textContent = opt?.desc || '';
       updateEval();
       if (selected !== null) {
         targets = pos.legalMoves([]).filter((m) => (m >> 8) === selected).map((m) => m & 255);
@@ -581,7 +595,8 @@ function buildTiersUI(container, side) {
       }
       toast(`${side === RED ? '红' : '黑'}${PIECE_CN[type]} 走法已设为 ${opt.label}`);
     });
-    wrap.append(label, select);
+
+    wrap.append(head, descEl);
     container.appendChild(wrap);
   }
 }
@@ -597,6 +612,10 @@ function syncTiersUI() {
     const options = TIER_DEFS[type] || [];
     const matchIdx = options.findIndex((o) => o.tier === curTier && o.branch === curBranch);
     sel.selectedIndex = matchIdx >= 0 ? matchIdx : 0;
+    const descEl = sel.closest('.tier-row')?.querySelector('.tier-effect-desc');
+    if (descEl && options[sel.selectedIndex]) {
+      descEl.textContent = options[sel.selectedIndex].desc || '';
+    }
   });
 }
 
@@ -845,12 +864,75 @@ function syncRelicsToPos() {
   pos.relics = { ...debugRelics };
 }
 
+function initHandbookUI() {
+  if (!dbgHandbookBody) return;
+  dbgHandbookBody.textContent = '';
+
+  const pieceNames = {
+    p: '兵 / 卒',
+    c: '炮 / 砲',
+    n: '马 / 傌',
+    r: '车 / 俥',
+    a: '仕 / 士',
+    b: '相 / 象',
+  };
+
+  const branchNames = {
+    p: { A: '路线甲【陷阵】', B: '路线乙【战阵】' },
+    c: { A: '路线甲【重炮】', B: '路线乙【神火】' },
+    n: { A: '路线甲【天马】', B: '路线乙【铁骑】' },
+    r: { A: '路线甲【神后】', B: '路线乙【重辇】' },
+  };
+
+  for (const type of ['p', 'c', 'n', 'r', 'a', 'b']) {
+    const card = document.createElement('div');
+    card.className = 'dbg-handbook-piece';
+
+    const title = document.createElement('div');
+    title.className = 'dbg-handbook-piece-title';
+    title.textContent = `${pieceNames[type]} 强化树`;
+    card.appendChild(title);
+
+    const spec = TIERS[type];
+    if (spec && spec.A && spec.B) {
+      for (const branch of ['A', 'B']) {
+        const branchDiv = document.createElement('div');
+        branchDiv.className = 'dbg-handbook-branch';
+        const bTitle = document.createElement('div');
+        bTitle.className = 'dbg-handbook-branch-title';
+        bTitle.textContent = branchNames[type][branch] || `路线${branch}`;
+        branchDiv.appendChild(bTitle);
+
+        spec[branch].forEach((t, i) => {
+          if (i === 0) return;
+          const item = document.createElement('div');
+          item.className = 'dbg-handbook-tier-item';
+          item.innerHTML = `<span class="dbg-tier-badge">T${i} ${t.name}</span>${t.desc}`;
+          branchDiv.appendChild(item);
+        });
+        card.appendChild(branchDiv);
+      }
+    } else if (Array.isArray(spec)) {
+      spec.forEach((t, i) => {
+        if (i === 0) return;
+        const item = document.createElement('div');
+        item.className = 'dbg-handbook-tier-item';
+        item.innerHTML = `<span class="dbg-tier-badge">T${i} ${t.name}</span>${t.desc}`;
+        card.appendChild(item);
+      });
+    }
+
+    dbgHandbookBody.appendChild(card);
+  }
+}
+
 /* ------------------------------------------------------------- startup */
 
 buildCells();
 buildCoords();
 buildTiersUI(redTiersContainer, RED);
 buildTiersUI(blackTiersContainer, BLACK);
+initHandbookUI();
 initRelicsUI();
 syncRelicsToPos();
 renderPalette();

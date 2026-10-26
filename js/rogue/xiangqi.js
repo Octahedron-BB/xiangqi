@@ -226,11 +226,36 @@ export class Position {
   #push(out, from, to, side) {
     const t = this.board[to];
     if (t && (t > 8 ? BLACK : RED) === side) return;
-    // 《连环铁锁》: 敌方兵卒不能吃我方处于互保状态的棋子
-    if (t && side === BLACK && (this.board[from] & 7) === P && this.relics?.iron_chains) {
-      if (this.isProtected(to, RED)) return;
+    // 《瞒天过海》: 开局前 2 回合（4 plies）黑方不可吃红方任何棋子
+    if (t && side === BLACK && this.relics?.deception && (this.plyCount || 0) < 4) {
+      return;
+    }
+    // 《连环铁锁》: 敌方兵卒不能吃受保护的红子；敌方马不能吃互保的红子
+    if (t && side === BLACK && this.relics?.iron_chains) {
+      const attackerType = this.board[from] & 7;
+      if (attackerType === P && this.isProtected(to, RED)) return;
+      if (attackerType === H && this.isMutuallyProtected(to, RED)) return;
     }
     out.push((from << 8) | to);
+  }
+
+  #genPieceMoves(from, side, out) {
+    const c = this.board[from];
+    if (!c) return;
+    const f = fileOf(from);
+    const r = rankOf(from);
+    const br = this.branch[side];
+    const tier = this.tier[side];
+    switch (c & 7) {
+      case K: this.#genKing(from, f, r, side, out); break;
+      case A: this.#genAdvisor(from, f, r, side, tier[A], out); break;
+      case E: this.#genElephant(from, f, r, side, tier[E], out); break;
+      case H: this.#genHorse(from, f, r, side, tier[H], br[H] || 'A', out); break;
+      case R: this.#genRook(from, f, r, side, tier[R], br[R] || 'A', out); break;
+      case C: this.#genCannon(from, f, r, side, tier[C], br[C] || 'A', out); break;
+      case P: this.#genPawn(from, f, r, side, tier[P], br[P] || 'A', out); break;
+      default: break;
+    }
   }
 
   isProtected(sq, side) {
@@ -239,22 +264,10 @@ export class Position {
     const pseudo = [];
     const b = this.board;
     for (let from = 0; from < SIZE; from++) {
+      if (from === sq) continue;
       const c = b[from];
       if (!c || (c > 8 ? BLACK : RED) !== side) continue;
-      const f = fileOf(from);
-      const r = rankOf(from);
-      const br = this.branch[side];
-      const tier = this.tier[side];
-      switch (c & 7) {
-        case K: this.#genKing(from, f, r, side, pseudo); break;
-        case A: this.#genAdvisor(from, f, r, side, tier[A], pseudo); break;
-        case E: this.#genElephant(from, f, r, side, tier[E], pseudo); break;
-        case H: this.#genHorse(from, f, r, side, tier[H], br[H] || 'A', pseudo); break;
-        case R: this.#genRook(from, f, r, side, tier[R], br[R] || 'A', pseudo); break;
-        case C: this.#genCannon(from, f, r, side, tier[C], br[C] || 'A', pseudo); break;
-        case P: this.#genPawn(from, f, r, side, tier[P], br[P] || 'A', pseudo); break;
-        default: break;
-      }
+      this.#genPieceMoves(from, side, pseudo);
       if (pseudo.some((m) => (m & 255) === sq)) {
         this.turn = saved;
         return true;
@@ -265,6 +278,32 @@ export class Position {
     return false;
   }
 
+  isMutuallyProtected(sq, side) {
+    const saved = this.turn;
+    this.turn = side;
+    const b = this.board;
+    const pseudo = [];
+    const guards = [];
+    for (let from = 0; from < SIZE; from++) {
+      if (from === sq) continue;
+      const c = b[from];
+      if (!c || (c > 8 ? BLACK : RED) !== side) continue;
+      this.#genPieceMoves(from, side, pseudo);
+      if (pseudo.some((m) => (m & 255) === sq)) {
+        guards.push(from);
+      }
+      pseudo.length = 0;
+    }
+    if (!guards.length) {
+      this.turn = saved;
+      return false;
+    }
+    this.#genPieceMoves(sq, side, pseudo);
+    const isMutual = guards.some((g) => pseudo.some((m) => (m & 255) === g));
+    this.turn = saved;
+    return isMutual;
+  }
+
   hasLastStand(side) {
     if (side !== RED || !this.relics?.last_stand) return false;
     let count = 0;
@@ -273,13 +312,24 @@ export class Position {
       const c = b[i];
       if (c && (c > 8 ? BLACK : RED) === side) {
         count++;
-        if (count > 2) return false;
+        if (count > 4) return false;
       }
     }
-    return count <= 2;
+    return count <= 4;
   }
 
   #genKing(from, f, r, side, out) {
+    const isLastStand = this.hasLastStand(side);
+    if (isLastStand) {
+      // 背水一战: 帅御驾亲征，突破九宫，全图米字步（八方走 1 格）
+      for (const [df, dr] of ALL_DIRS) {
+        const nf = f + df;
+        const nr = r + dr;
+        if (!onBoard(nf, nr)) continue;
+        this.#push(out, from, sqOf(nf, nr), side);
+      }
+      return;
+    }
     for (const [df, dr] of ORTH) {
       const nf = f + df;
       const nr = r + dr;
@@ -289,9 +339,10 @@ export class Position {
   }
 
   #genAdvisor(from, f, r, side, tier, out) {
-    // 《瞒天过海》: 开局前 3 回合（6 plies）内仕可出九宫任意斜滑
-    const allowDeception = side === RED && this.relics?.deception && (this.plyCount || 0) < 6;
-    if (tier >= 2 || allowDeception) {
+    const isLastStand = this.hasLastStand(side);
+    // 《瞒天过海》或《背水一战》: 仕全场永久解除九宫限制，沿斜线全滑行
+    const allowDeception = side === RED && this.relics?.deception;
+    if (tier >= 2 || isLastStand || allowDeception) {
       for (const [df, dr] of DIAG) {
         let nf = f + df;
         let nr = r + dr;
@@ -326,14 +377,17 @@ export class Position {
   }
 
   #genElephant(from, f, r, side, tier, out) {
-    // 《瞒天过海》: 开局前 3 回合（6 plies）内相可过河
-    const allowRiver = tier >= 2 || (side === RED && this.relics?.deception && (this.plyCount || 0) < 6);
+    const isLastStand = this.hasLastStand(side);
+    // 《瞒天过海》或《背水一战》: 相全场永久可过河且绝不塞象眼
+    const allowDeception = side === RED && this.relics?.deception;
+    const allowRiver = tier >= 2 || isLastStand || allowDeception;
+    const unblocked = tier >= 1 || isLastStand || allowDeception;
     for (const [df, dr] of DIAG) {
       const nf = f + df * 2;
       const nr = r + dr * 2;
       if (!onBoard(nf, nr)) continue;
       if (!allowRiver && (side === RED ? nr > 4 : nr < 5)) continue; // own half only
-      if (tier < 1 && this.board[sqOf(f + df, r + dr)] !== EMPTY) continue; // 塞象眼
+      if (!unblocked && this.board[sqOf(f + df, r + dr)] !== EMPTY) continue; // 塞象眼
       this.#push(out, from, sqOf(nf, nr), side);
     }
   }
@@ -396,7 +450,8 @@ export class Position {
   }
 
   #genRook(from, f, r, side, tier, branch, out) {
-    const canJumpAlly = branch === 'B' && tier >= 1;
+    const isLastStand = this.hasLastStand(side);
+    const canJumpAlly = (branch === 'B' && tier >= 1) || isLastStand;
     const canJumpEnemy = branch === 'B' && tier >= 2;
     for (const [df, dr] of ORTH) {
       let nf = f + df;
@@ -433,9 +488,9 @@ export class Position {
         nr += dr;
       }
     }
-    // 路线 A: 神后 (沿斜线滑行)
-    if (branch === 'A' && tier >= 1) {
-      const maxSteps = tier >= 3 ? 9 : tier;
+    // 路线 A: 神后 (沿斜线滑行) 或【背水一战】(斜走 1 格)
+    if ((branch === 'A' && tier >= 1) || isLastStand) {
+      const maxSteps = branch === 'A' ? (tier >= 3 ? 9 : tier) : 1;
       for (const [df, dr] of DIAG) {
         let nf = f + df;
         let nr = r + dr;
