@@ -15,7 +15,7 @@ import {
   addOrReserve, autoDeployFromReserves, getStageReinforcements, countOfReserve, HOME,
 } from './run.js';
 import { drawRewards, applyReward, describeBuild, describeArmy, PIECE_CN, RELICS } from './rewards.js';
-import { buildShop, buy } from './shop.js';
+import { buildShop, buy, getRefreshCost, refreshShop } from './shop.js';
 import { chineseNotation } from '../notation.js';
 
 const PIECE_FILE = { k: 'king', a: 'advisor', b: 'elephant', n: 'horse', r: 'rook', c: 'cannon', p: 'pawn' };
@@ -880,29 +880,50 @@ function openRewards(pay) {
 /* ----------------------------------------------------------------- shop */
 
 function openShop(done) {
-  const stock = buildShop(run).sort((a, b) => a.price - b.price);
-  const affordable = stock.filter((x) => x.price <= run.gold);
-  const cards = affordable.length ? affordable : stock.slice(0, 3);
+  const stock = buildShop(run);
+  const refreshCost = getRefreshCost(run);
+  const canRefresh = run.gold >= refreshCost;
+
   showOverlay({
     kicker: '补给铺',
     title: '花掉你的金币',
-    sub: `手上 <span class="shop-gold">${run.gold}</span> 金。买多少都行，买完点「离开」。`,
-    cards,
+    sub: `手上 <span class="shop-gold">${run.gold}</span> 金。固定展示 8 件商品，买多少都行，买完点「离开」。`,
+    cards: stock,
     wide: true,
     onPick: (entry) => {
+      if (entry.soldOut) return;
       if (!buy(run, entry)) {
         toast('金币不够');
         return;
       }
       updateHud();
-      hideOverlay();
       openShop(done);
     },
-    buttons: [{
-      label: '离开',
-      primary: true,
-      onClick: () => { hideOverlay(); done(); },
-    }],
+    buttons: [
+      {
+        label: `🔄 刷新商品（${refreshCost} 金）`,
+        disabled: !canRefresh,
+        onClick: () => {
+          if (!refreshShop(run)) {
+            toast('金币不够刷新');
+            return;
+          }
+          updateHud();
+          openShop(done);
+        },
+      },
+      {
+        label: '离开',
+        primary: true,
+        onClick: () => {
+          run.currentShopStock = null;
+          run.shopRefreshCount = 0;
+          run.bountyFreeClaimedThisVisit = false;
+          hideOverlay();
+          done();
+        },
+      },
+    ],
   });
 }
 
@@ -934,7 +955,7 @@ function showOverlay({ kicker = '', title = '', sub = '', cards = [], buttons = 
   ovFoot.textContent = '';
   for (const card of cards) {
     const btn = document.createElement('button');
-    btn.className = `card card-${card.kind}${card.rarity ? ` card-${card.rarity}` : ''}`;
+    btn.className = `card card-${card.kind}${card.rarity ? ` card-${card.rarity}` : ''}${card.soldOut ? ' sold-out' : ''}`;
     const tag = document.createElement('span');
     tag.className = 'card-tag';
     tag.textContent = card.tag;
@@ -952,15 +973,25 @@ function showOverlay({ kicker = '', title = '', sub = '', cards = [], buttons = 
     desc.className = 'card-desc';
     desc.textContent = card.desc;
     btn.append(tag, head, desc);
-    if (card.price !== undefined) {
+    if (card.soldOut) {
+      btn.disabled = true;
+      const price = document.createElement('span');
+      price.className = 'card-price card-sold-out';
+      price.textContent = '已售罄';
+      btn.appendChild(price);
+    } else if (card.price !== undefined) {
       const price = document.createElement('span');
       price.className = 'card-price';
-      price.textContent = `${card.price} 金`;
-      btn.appendChild(price);
-      if (card.price > run.gold) {
+      if (card.price === 0) {
+        price.classList.add('free');
+        price.textContent = '0 金（免费）';
+      } else if (card.price > run.gold) {
         btn.disabled = true;
         price.textContent = `${card.price} 金（不够）`;
+      } else {
+        price.textContent = `${card.price} 金`;
       }
+      btn.appendChild(price);
     }
     btn.addEventListener('click', () => onPick?.(card));
     ovCards.appendChild(btn);
@@ -968,6 +999,7 @@ function showOverlay({ kicker = '', title = '', sub = '', cards = [], buttons = 
   for (const spec of buttons) {
     const btn = document.createElement('button');
     if (spec.primary) btn.className = 'primary';
+    if (spec.disabled) btn.disabled = true;
     btn.textContent = spec.label;
     btn.addEventListener('click', spec.onClick);
     ovFoot.appendChild(btn);
@@ -1217,6 +1249,8 @@ if (location.search.includes('debug')) {
     applyReward,
     buildShop,
     buy,
+    getRefreshCost,
+    refreshShop,
     saveGame,
     loadGame,
     newGame,

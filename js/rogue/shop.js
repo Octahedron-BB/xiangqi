@@ -1,15 +1,11 @@
-// The shop: one visit halfway through the run, paid for with gold earned by
-// clearing stages quickly.
+// The shop: visits throughout the run, paid for with gold earned by clearing
+// stages quickly.
 //
-// Stock is derived from the run state rather than stored, so buying a move
-// upgrade immediately reveals the next tier and buying the last soldier makes
-// that line disappear. No purchase log is needed.
-//
-// Prices are tuned against the gold curve in levels.js: a player who clears
-// every stage at par arrives with roughly 80-90 gold, which buys three or four
-// things — enough for a real decision, not enough for everything.
+// The shop inventory is fixed to 8 randomly drawn items per visit. A refresh
+// button allows the player to pay gold to reshuffle the stock, with the price
+// scaling higher on successive refreshes.
 
-import { MAX_COUNT, addToRoster, countOf } from './run.js';
+import { MAX_COUNT, MAX_RESERVE, addToRoster, countOf } from './run.js';
 import { MAX_TIER, TIERS, PIECE_CN, PASSIVES, RELICS, applyReward, RARITY_CONFIG, DEFAULT_RARITY } from './rewards.js';
 
 const TIER_ORDER = ['p', 'c', 'n', 'r', 'a', 'b'];
@@ -36,14 +32,20 @@ export const SHOP_GOODS = {
   },
 };
 
-/** Everything the player can buy right now, given what they still own. */
-export function buildShop(run) {
-  const stock = [];
+/** Refresh cost scales by 5 gold per refresh: 5, 10, 15, 20... */
+export function getRefreshCost(run) {
+  const count = run.shopRefreshCount ?? 0;
+  return (count + 1) * 5;
+}
+
+/** Everything the player could potentially buy right now, given what they own. */
+export function buildShopPool(run) {
+  const pool = [];
 
   for (const type of TIER_ORDER) {
     const current = run.tiers[type] ?? 0;
     if (current >= MAX_TIER[type]) continue;
-    if (countOf(run, type) === 0) continue; // upgrading a type you lost is a dead buy
+    if (countOf(run, type) === 0 && (run.reserves?.[type] ?? 0) === 0) continue;
 
     const hasBranches = ['p', 'n', 'c', 'r'].includes(type);
     const branches = hasBranches
@@ -56,7 +58,7 @@ export function buildShop(run) {
       const meta = RARITY_CONFIG[key] ?? DEFAULT_RARITY;
       const spec = branch ? TIERS[type][branch][to] : TIERS[type][to];
       const branchTag = branch === 'A' ? '路线甲' : branch === 'B' ? '路线乙' : '';
-      stock.push({
+      pool.push({
         key,
         kind: 'tier',
         type,
@@ -72,16 +74,20 @@ export function buildShop(run) {
   }
 
   for (const type of RECRUIT_ORDER) {
-    if (countOf(run, type) >= MAX_COUNT[type]) continue;
+    const curRoster = countOf(run, type);
+    const curReserve = run.reserves?.[type] ?? 0;
+    const maxReserve = MAX_RESERVE[type] ?? 2;
+    if (curRoster >= MAX_COUNT[type] && curReserve >= maxReserve) continue;
+
     const key = `passive:recruit_${type}`;
     const meta = RARITY_CONFIG[key] ?? DEFAULT_RARITY;
-    stock.push({
+    pool.push({
       key: `recruit:${type}`,
       kind: 'recruit',
       type,
       tag: '补充子力',
       title: `补一个${PIECE_CN[type]}`,
-      desc: `立刻往部队里加 1 个${PIECE_CN[type]}，永久留在你的部队里。`,
+      desc: `往部队或备用库加 1 个${PIECE_CN[type]}。`,
       rarity: meta.rarity,
       price: RECRUIT_PRICE[type],
     });
@@ -89,7 +95,7 @@ export function buildShop(run) {
 
   const armorStacks = run.passives.armor ?? 0;
   if (armorStacks < PASSIVES.armor.max) {
-    stock.push({
+    pool.push({
       key: 'passive:armor',
       kind: 'passive',
       id: 'armor',
@@ -101,7 +107,7 @@ export function buildShop(run) {
     });
   }
 
-  stock.push({
+  pool.push({
     key: 'item:undo',
     kind: 'item',
     id: 'undo',
@@ -111,7 +117,7 @@ export function buildShop(run) {
     price: SHOP_GOODS.undo.price,
   });
 
-  stock.push({
+  pool.push({
     key: 'item:retry',
     kind: 'item',
     id: 'retry',
@@ -125,7 +131,7 @@ export function buildShop(run) {
   for (const [id, spec] of Object.entries(RELICS)) {
     if (run.relics?.[id]) continue;
     const priceMap = { common: 24, rare: 36, epic: 48, legendary: 60 };
-    stock.push({
+    pool.push({
       key: `relic:${id}`,
       kind: 'relic',
       id,
@@ -137,37 +143,116 @@ export function buildShop(run) {
     });
   }
 
-  // 《重赏勇夫》bounty_hero logic: 1 random item is free
-  if (run.relics?.bounty_hero && stock.length > 0) {
-    if (!run._freeShopKey || !stock.some((s) => s.key === run._freeShopKey)) {
-      const candidates = stock.filter((s) => s.price > 0);
-      if (candidates.length > 0) {
-        const picked = candidates[Math.floor(Math.random() * candidates.length)];
-        run._freeShopKey = picked.key;
+  return pool;
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Generates up to 8 distinct, well-balanced items for the shop inventory. */
+export function generateShopStock(run, count = 8) {
+  const pool = buildShopPool(run);
+
+  const tiers = shuffle(pool.filter((x) => x.kind === 'tier'));
+  const recruits = shuffle(pool.filter((x) => x.kind === 'recruit'));
+  const relics = shuffle(pool.filter((x) => x.kind === 'relic'));
+  const utilities = shuffle(pool.filter((x) => x.kind === 'item' || x.kind === 'passive'));
+
+  const chosen = [];
+  const chosenTypes = new Set();
+
+  function pickFrom(list, targetCount) {
+    let picked = 0;
+    for (const item of list) {
+      if (picked >= targetCount) break;
+      if (chosen.some((c) => c.key === item.key)) continue;
+      if (item.kind === 'tier') {
+        if (chosenTypes.has(item.type)) continue;
+        chosenTypes.add(item.type);
       }
-    }
-    const freeItem = stock.find((s) => s.key === run._freeShopKey);
-    if (freeItem) {
-      freeItem.price = 0;
-      freeItem.tag = '勇夫特惠 · 免费';
+      chosen.push({ ...item });
+      picked++;
     }
   }
 
-  return stock;
+  // Quotas for variety: up to 3 tiers, 2 recruits, 2 relics, 1 utility
+  pickFrom(tiers, 3);
+  pickFrom(recruits, 2);
+  pickFrom(relics, 2);
+  pickFrom(utilities, 1);
+
+  // Fill remaining slots up to count from whatever else is in the pool
+  const allShuffled = shuffle(pool);
+  for (const item of allShuffled) {
+    if (chosen.length >= count) break;
+    if (chosen.some((c) => c.key === item.key)) continue;
+    if (item.kind === 'tier' && chosenTypes.has(item.type)) continue;
+    if (item.kind === 'tier') chosenTypes.add(item.type);
+    chosen.push({ ...item });
+  }
+
+  // Sort by category order then price for neat presentation
+  const kindOrder = { tier: 1, recruit: 2, relic: 3, passive: 4, item: 5 };
+  chosen.sort((a, b) => {
+    const ka = kindOrder[a.kind] ?? 99;
+    const kb = kindOrder[b.kind] ?? 99;
+    if (ka !== kb) return ka - kb;
+    return a.price - b.price;
+  });
+
+  // 《重赏勇夫》bounty_hero: exactly 1 random item is free per shop visit
+  if (run.relics?.bounty_hero && !run.bountyFreeClaimedThisVisit && chosen.length > 0) {
+    const paid = chosen.filter((c) => c.price > 0);
+    if (paid.length > 0) {
+      const lucky = paid[Math.floor(Math.random() * paid.length)];
+      lucky.originalPrice = lucky.price;
+      lucky.price = 0;
+      lucky.tag = '勇夫特惠 · 免费';
+      lucky.isBountyFree = true;
+    }
+  }
+
+  return chosen;
+}
+
+/** Returns the current shop stock (cached 8 items, or generates a new batch). */
+export function buildShop(run) {
+  if (run.currentShopStock && run.currentShopStock.length > 0) {
+    return run.currentShopStock;
+  }
+  run.currentShopStock = generateShopStock(run, 8);
+  return run.currentShopStock;
+}
+
+/** Refreshes the shop stock by paying gold. Price increases with each refresh. */
+export function refreshShop(run) {
+  const cost = getRefreshCost(run);
+  if (run.gold < cost) return false;
+  run.gold -= cost;
+  run.shopRefreshCount = (run.shopRefreshCount ?? 0) + 1;
+  run.currentShopStock = generateShopStock(run, 8);
+  return true;
 }
 
 /** Buys one entry. Returns true when the purchase went through. */
 export function buy(run, entry) {
-  if (!entry || run.gold < entry.price) return false;
-  const isFree = (run._freeShopKey === entry.key);
+  if (!entry || entry.soldOut || run.gold < entry.price) return false;
   if (entry.kind === 'recruit') {
     if (!addToRoster(run, entry.type)) return false;
     run.gold -= entry.price;
-    if (isFree) run._freeShopKey = null;
+    entry.soldOut = true;
+    if (entry.isBountyFree) run.bountyFreeClaimedThisVisit = true;
     return true;
   }
   run.gold -= entry.price;
   applyReward(run, entry);
-  if (isFree) run._freeShopKey = null;
+  entry.soldOut = true;
+  if (entry.isBountyFree) run.bountyFreeClaimedThisVisit = true;
   return true;
 }

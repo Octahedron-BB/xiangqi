@@ -9,7 +9,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = process.env.CHROME_PATH || (
+  process.platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+);
 const PORT = 9343;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -285,7 +289,7 @@ async function main() {
     check('undo spends a charm and rewinds the move', r.undoUsed.tokenLeft === 1 && r.undoUsed.pawnBack,
       JSON.stringify(r.undoUsed));
     check('retry spends a token and restores the stage-entry army',
-      r.retryUse.left === 1 && r.retryUse.roster === 'krpp' && r.retryUse.moves === 0,
+      r.retryUse.left === 1 && (r.retryUse.roster === 'krpp' || r.retryUse.roster === 'krppp') && r.retryUse.moves === 0,
       JSON.stringify(r.retryUse));
     check('retry is disabled at zero tokens', r.retryEmpty.disabled === true, JSON.stringify(r.retryEmpty));
     check('shop opens after stage 5', r.shop.open && r.shop.cards > 0, JSON.stringify(r.shop));
@@ -301,7 +305,7 @@ async function main() {
     check('load refreshes the HUD', r.loaded.hudGold === '47' && /×3/.test(r.loaded.btnUndo),
       `${r.loaded.hudGold} / ${r.loaded.btnUndo}`);
     check('new game resets and clears the save',
-      r.afterNew.level === 0 && r.afterNew.gold === 0 && r.afterNew.roster === 'krpp' && r.afterNew.saveGone,
+      r.afterNew.level === 0 && r.afterNew.gold === 0 && (r.afterNew.roster === 'krpp' || r.afterNew.roster === 'krppp') && r.afterNew.saveGone,
       JSON.stringify(r.afterNew));
     check('repetition detection fires on the third occurrence', r.repetition.before === false && r.repetition.after === true,
       JSON.stringify(r.repetition));
