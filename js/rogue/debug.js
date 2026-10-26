@@ -67,6 +67,7 @@ let lastMove = null;
 let busy = false;
 let redBonusTurns = 0;
 const debugRelics = {};
+let bonusMover = null;
 
 let currentTool = 'normal'; // 'normal' | 'add' | 'remove' | 'move'
 let activeSide = RED;
@@ -279,8 +280,112 @@ function play(from, to) {
   renderStatus();
   updateEval();
 
+  // 检查兵种追加位移技能 (车雷霆万钧 / 马连环步)
+  const pieceType = typeOfCode(u.moving);
+  if (pieceType === R && pos.branch?.[mover]?.[R] === 'B' && pos.tier[mover][R] >= 3 && u.cap) {
+    const dist = Math.abs(fileOf(to) - fileOf(from)) + Math.abs(rankOf(to) - rankOf(from));
+    if (dist > 4 && triggerBonusStep('r', to, mover)) return;
+  }
+  if (pieceType === H && pos.branch?.[mover]?.[H] === 'B' && pos.tier[mover][H] >= 3 && !u.cap) {
+    if (triggerBonusStep('n', to, mover)) return;
+  }
+
   // If Red just played, check bonus turn or let black bot reply
   if (mover === RED) {
+    if (redBonusTurns > 0) {
+      redBonusTurns--;
+      pos.turn = RED;
+      renderStatus();
+      toast('【连击】红方连续行动第二步！');
+      return;
+    }
+    if (pos.kings[BLACK] >= 0 && pos.hasLegalMove()) {
+      botTurn();
+    }
+  }
+}
+
+function triggerBonusStep(type, sq, side) {
+  const legalQuiet = [];
+  const f = fileOf(sq);
+  const r = rankOf(sq);
+  const moverCode = pos.board[sq];
+
+  if (type === 'r') {
+    // 车【雷霆万钧】: 纯空格直走（不可吃子）
+    for (const [df, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      let nf = f + df;
+      let nr = r + dr;
+      while (nf >= 0 && nf <= 8 && nr >= 0 && nr <= 9) {
+        const dest = nr * 9 + nf;
+        if (pos.board[dest] !== EMPTY) break;
+        pos.board[dest] = moverCode;
+        pos.board[sq] = EMPTY;
+        const safe = !pos.inCheck(side);
+        pos.board[sq] = moverCode;
+        pos.board[dest] = EMPTY;
+        if (safe) legalQuiet.push(dest);
+        nf += df;
+        nr += dr;
+      }
+    }
+  } else if (type === 'n') {
+    // 马【连环步】: 沿四角斜走一步空格（不可吃子）
+    for (const [df, dr] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const nf = f + df;
+      const nr = r + dr;
+      if (nf >= 0 && nf <= 8 && nr >= 0 && nr <= 9) {
+        const dest = nr * 9 + nf;
+        if (pos.board[dest] === EMPTY) {
+          pos.board[dest] = moverCode;
+          pos.board[sq] = EMPTY;
+          const safe = !pos.inCheck(side);
+          pos.board[sq] = moverCode;
+          pos.board[dest] = EMPTY;
+          if (safe) legalQuiet.push(dest);
+        }
+      }
+    }
+  }
+
+  if (!legalQuiet.length) return false;
+
+  bonusMover = { type, sq, side };
+  selected = sq;
+  targets = legalQuiet;
+  render();
+  renderMarks();
+  const name = type === 'r' ? '战车【雷霆万钧】' : '神骑【连环步】';
+  statusEl.className = 'status';
+  statusEl.textContent = `${name}：可再走一步空格（不可吃子），或点击自身结束`;
+  toast(`${name}触发！可追加行动，或点击自身结束`);
+  return true;
+}
+
+function finishBonusStep(dest) {
+  const moverSq = bonusMover.sq;
+  const moverSide = bonusMover.side;
+  bonusMover = null;
+  selected = null;
+  targets = [];
+
+  if (dest !== null) {
+    const text = notationFor(moverSq, dest);
+    pos.turn = moverSide;
+    const u = pos.make((moverSq << 8) | dest);
+    history.push({ from: moverSq, to: dest, u, text });
+    plies.push(text);
+    lastMove = { from: moverSq, to: dest };
+    render();
+    renderMoves();
+    renderStatus();
+    updateEval();
+  } else {
+    render();
+    renderStatus();
+  }
+
+  if (moverSide === RED) {
     if (redBonusTurns > 0) {
       redBonusTurns--;
       pos.turn = RED;
@@ -387,6 +492,19 @@ function movePiece(from, to) {
 
 function onSquare(sq) {
   if (busy) return;
+
+  if (bonusMover) {
+    if (sq === bonusMover.sq) {
+      finishBonusStep(null);
+      return;
+    }
+    if (targets.includes(sq)) {
+      finishBonusStep(sq);
+      return;
+    }
+    finishBonusStep(null);
+    return;
+  }
 
   if (currentTool === 'add') {
     addPiece(sq, activeSide, activePieceType);
@@ -626,6 +744,7 @@ function initToolSwitcher() {
       toolBtns.forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       currentTool = btn.dataset.tool;
+      bonusMover = null;
       moveSource = null;
       selected = null;
       targets = [];
@@ -672,6 +791,7 @@ function initButtons() {
   });
 
   btnStandardXiangqi.addEventListener('click', () => {
+    bonusMover = null;
     pos = new Position(START_FEN);
     syncRelicsToPos();
     syncTiersUI();
@@ -688,6 +808,7 @@ function initButtons() {
   });
 
   btnClearBoard.addEventListener('click', () => {
+    bonusMover = null;
     for (let sq = 0; sq < 90; sq++) {
       const c = pos.board[sq];
       if (c && typeOfCode(c) !== K) pos.board[sq] = EMPTY;
@@ -746,6 +867,7 @@ function initButtons() {
     const str = fenInput.value.trim();
     if (!str) return;
     try {
+      bonusMover = null;
       pos.load(str);
       syncRelicsToPos();
       syncTiersUI();
@@ -779,6 +901,7 @@ function initButtons() {
   });
 
   btnLoadPreset.addEventListener('click', () => {
+    bonusMover = null;
     const idx = parseInt(selectPresetLevel.value, 10);
     const lv = LEVELS[idx];
     const run = createRun();

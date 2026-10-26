@@ -260,48 +260,75 @@ export class Position {
 
   isProtected(sq, side) {
     const saved = this.turn;
+    const savedCode = this.board[sq];
     this.turn = side;
-    const pseudo = [];
-    const b = this.board;
-    for (let from = 0; from < SIZE; from++) {
-      if (from === sq) continue;
-      const c = b[from];
-      if (!c || (c > 8 ? BLACK : RED) !== side) continue;
-      this.#genPieceMoves(from, side, pseudo);
-      if (pseudo.some((m) => (m & 255) === sq)) {
-        this.turn = saved;
-        return true;
+    // 设为假想敌子，以便着法生成器将 sq 视为受击/受保护的目标格
+    this.board[sq] = codeOf(side ^ 1, P);
+    try {
+      const pseudo = [];
+      const b = this.board;
+      for (let from = 0; from < SIZE; from++) {
+        if (from === sq) continue;
+        const c = b[from];
+        if (!c || (c > 8 ? BLACK : RED) !== side) continue;
+        this.#genPieceMoves(from, side, pseudo);
+        if (pseudo.some((m) => (m & 255) === sq)) {
+          return true;
+        }
+        pseudo.length = 0;
       }
-      pseudo.length = 0;
+      return false;
+    } finally {
+      this.board[sq] = savedCode;
+      this.turn = saved;
     }
-    this.turn = saved;
-    return false;
   }
 
   isMutuallyProtected(sq, side) {
     const saved = this.turn;
+    const savedCode = this.board[sq];
     this.turn = side;
-    const b = this.board;
-    const pseudo = [];
+    this.board[sq] = codeOf(side ^ 1, P);
     const guards = [];
-    for (let from = 0; from < SIZE; from++) {
-      if (from === sq) continue;
-      const c = b[from];
-      if (!c || (c > 8 ? BLACK : RED) !== side) continue;
-      this.#genPieceMoves(from, side, pseudo);
-      if (pseudo.some((m) => (m & 255) === sq)) {
-        guards.push(from);
+    try {
+      const pseudo = [];
+      const b = this.board;
+      for (let from = 0; from < SIZE; from++) {
+        if (from === sq) continue;
+        const c = b[from];
+        if (!c || (c > 8 ? BLACK : RED) !== side) continue;
+        this.#genPieceMoves(from, side, pseudo);
+        if (pseudo.some((m) => (m & 255) === sq)) {
+          guards.push(from);
+        }
+        pseudo.length = 0;
       }
-      pseudo.length = 0;
-    }
-    if (!guards.length) {
+    } finally {
+      this.board[sq] = savedCode;
       this.turn = saved;
-      return false;
     }
-    this.#genPieceMoves(sq, side, pseudo);
-    const isMutual = guards.some((g) => pseudo.some((m) => (m & 255) === g));
-    this.turn = saved;
-    return isMutual;
+    if (!guards.length) return false;
+
+    this.turn = side;
+    try {
+      const pseudo = [];
+      for (const g of guards) {
+        const savedGuardCode = this.board[g];
+        this.board[g] = codeOf(side ^ 1, P);
+        try {
+          pseudo.length = 0;
+          this.#genPieceMoves(sq, side, pseudo);
+          if (pseudo.some((m) => (m & 255) === g)) {
+            return true;
+          }
+        } finally {
+          this.board[g] = savedGuardCode;
+        }
+      }
+      return false;
+    } finally {
+      this.turn = saved;
+    }
   }
 
   hasLastStand(side) {
