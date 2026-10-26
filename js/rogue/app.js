@@ -495,11 +495,35 @@ function notationFor(from, to) {
   });
 }
 
+function takeSnapshot() {
+  return {
+    redBonusTurns,
+    soulRetrievedThisStage,
+    cicadaShellUsedThisStage,
+    stageKills,
+    gold: run?.gold ?? 0,
+    roster: run?.roster ? [...run.roster] : [],
+    reserves: run?.reserves ? { ...run.reserves } : {},
+  };
+}
+
+function restoreSnapshot(s) {
+  if (!s || !run) return;
+  redBonusTurns = s.redBonusTurns;
+  soulRetrievedThisStage = s.soulRetrievedThisStage;
+  cicadaShellUsedThisStage = s.cicadaShellUsedThisStage;
+  stageKills = s.stageKills;
+  run.gold = s.gold;
+  run.roster = [...s.roster];
+  run.reserves = { ...s.reserves };
+}
+
 function play(from, to) {
   const mover = pos.turn;
   const text = notationFor(from, to);
+  const snapshot = takeSnapshot();
   const u = pos.make((from << 8) | to);
-  history.push({ from, to, u, text });
+  history.push({ from, to, u, text, snapshot });
   plies.push(text);
   notePosition(mover);
   noteCapture(u);
@@ -608,9 +632,10 @@ function finishBonusStep(dest) {
 
   if (dest !== null) {
     const text = notationFor(moverSq, dest);
+    const snapshot = takeSnapshot();
     pos.turn = RED;
     const u = pos.make((moverSq << 8) | dest);
-    history.push({ from: moverSq, to: dest, u, text });
+    history.push({ from: moverSq, to: dest, u, text, snapshot });
     plies.push(text);
     notePosition(RED);
     lastMove = { from: moverSq, to: dest };
@@ -691,8 +716,9 @@ async function botTurn() {
   const from = chosen >> 8;
   const to = chosen & 255;
   const text = notationFor(from, to);
+  const snapshot = takeSnapshot();
   const u = pos.make(chosen);
-  history.push({ from, to, u, text });
+  history.push({ from, to, u, text, snapshot });
   plies.push(text);
   notePosition(BLACK);
   noteCapture(u);
@@ -1083,12 +1109,16 @@ function undoStep() {
     const h = history.pop();
     if (h.isDeploy) {
       pos.board[h.to] = EMPTY;
-      run.reserves[h.type] = (run.reserves[h.type] ?? 0) + 1;
-      dropFromRoster(run, h.type);
     } else {
       pos.unmake(h.u);
-      // undoing a capture puts the piece back on the board and back in the army
-      if (h.u.cap && sideOfCode(h.u.cap) === RED) {
+    }
+    if (h.snapshot) {
+      restoreSnapshot(h.snapshot);
+    } else {
+      if (h.isDeploy) {
+        run.reserves[h.type] = (run.reserves[h.type] ?? 0) + 1;
+        dropFromRoster(run, h.type);
+      } else if (h.u?.cap && sideOfCode(h.u.cap) === RED) {
         addToRoster(run, TYPE_LETTER[typeOfCode(h.u.cap)]);
       }
     }
@@ -1145,12 +1175,13 @@ function onSquare(sq) {
     if (emptySqs.includes(sq)) {
       const type = deployingReserveType;
       const code = codeOf(RED, LETTER_TYPE[type]);
+      const snapshot = takeSnapshot();
       pos.board[sq] = code;
       run.reserves[type] -= 1;
       run.roster.push(type);
       const pieceName = PIECE_CN[type];
       const text = `部署·${pieceName}(${squareName(sq).toUpperCase()})`;
-      history.push({ from: sq, to: sq, u: { cap: 0, moving: code }, text, isDeploy: true, type });
+      history.push({ from: sq, to: sq, u: { cap: 0, moving: code }, text, isDeploy: true, type, snapshot });
       plies.push(text);
       notePosition(RED);
       lastMove = { from: sq, to: sq };
@@ -1321,8 +1352,9 @@ if (location.search.includes('debug')) {
     moveBoth(from, to) {
       const mover = pos.turn;
       const text = notationFor(from, to);
+      const snapshot = takeSnapshot();
       const u = pos.make((from << 8) | to);
-      history.push({ from, to, u, text });
+      history.push({ from, to, u, text, snapshot });
       plies.push(text);
       notePosition(mover);
       noteCapture(u);
