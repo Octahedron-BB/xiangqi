@@ -1109,6 +1109,8 @@ function undoStep() {
     const h = history.pop();
     if (h.isDeploy) {
       pos.board[h.to] = EMPTY;
+      pos.turn = RED;
+      pos.plyCount--;
     } else {
       pos.unmake(h.u);
     }
@@ -1171,12 +1173,19 @@ function onSquare(sq) {
 
   // Handle deployment from reserve
   if (deployingReserveType) {
+    if (pos.turn !== RED || busy) {
+      deployingReserveType = null;
+      render();
+      updateHud();
+      return;
+    }
     const emptySqs = getEmptyHomeSquares(deployingReserveType);
     if (emptySqs.includes(sq)) {
       const type = deployingReserveType;
       const code = codeOf(RED, LETTER_TYPE[type]);
       const snapshot = takeSnapshot();
       pos.board[sq] = code;
+      pos.plyCount++;
       run.reserves[type] -= 1;
       run.roster.push(type);
       const pieceName = PIECE_CN[type];
@@ -1199,6 +1208,7 @@ function onSquare(sq) {
       if (redBonusTurns > 0) {
         if (pos.inCheck(BLACK)) {
           redBonusTurns = 0;
+          pos.turn = BLACK;
           toast('《弃子争先》红方叫将！按双招规则提前终结连走，黑方立即应将');
         } else {
           redBonusTurns -= 1;
@@ -1207,6 +1217,8 @@ function onSquare(sq) {
           toast('《弃子争先》连走回合！红方请继续行动');
           return;
         }
+      } else {
+        pos.turn = BLACK;
       }
       botTurn();
       return;
@@ -1346,6 +1358,7 @@ if (location.search.includes('debug')) {
     saveGame,
     loadGame,
     newGame,
+    updateHud,
     describeBuild,
     hideOverlay,
     // drive both sides in a script without waking the bot
