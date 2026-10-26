@@ -82,6 +82,38 @@ let repState = { count: 1, cycleStart: 0 };
 const pctX = (sq) => (fileOf(sq) / 8) * 100;
 const pctY = (sq) => ((9 - rankOf(sq)) / 9) * 100;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const SLIDE_CURVE = 'cubic-bezier(0.2, 0.7, 0.3, 1)';
+const SLIDE_MS = 220;
+
+function slidePiece(source, from, to) {
+  if (!source) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const landing = piecesLayer.querySelector(`.piece[data-square="${squareName(to)}"]`);
+  const ghost = source.cloneNode(true);
+  ghost.classList.remove('sel');
+  ghost.classList.add('sliding');
+  ghost.removeAttribute('data-square');
+  ghost.style.left = `${pctX(from)}%`;
+  ghost.style.top = `${pctY(from)}%`;
+  ghost.style.transition = 'none';
+  piecesLayer.appendChild(ghost);
+  if (landing) landing.style.visibility = 'hidden';
+
+  void ghost.offsetWidth;
+
+  const ms = SLIDE_MS;
+  ghost.style.transition = `left ${ms}ms ${SLIDE_CURVE}, top ${ms}ms ${SLIDE_CURVE}`;
+  ghost.style.left = `${pctX(to)}%`;
+  ghost.style.top = `${pctY(to)}%`;
+
+  const done = () => {
+    ghost.remove();
+    if (landing && landing.isConnected) landing.style.visibility = '';
+  };
+  ghost.addEventListener('transitionend', done, { once: true });
+  setTimeout(done, ms + 80);
+}
 
 /* ------------------------------------------------------------- static DOM */
 
@@ -388,6 +420,8 @@ function startLevel(index, opts = {}) {
     : level.goalText;
   if (level.bossBuff) {
     levelTip.innerHTML = `<span class="boss-buff-pill">首领特性：${level.bossBuff.name}</span>${level.bossBuff.desc}。<br>${level.tip}`;
+  } else if (level.enemyBuff) {
+    levelTip.innerHTML = `<span class="enemy-buff-pill">敌方精锐：${level.enemyBuff.name}</span>${level.enemyBuff.desc}。<br>${level.tip}`;
   } else {
     levelTip.textContent = level.tip;
   }
@@ -520,6 +554,7 @@ function restoreSnapshot(s) {
 
 function play(from, to) {
   const mover = pos.turn;
+  const moverEl = piecesLayer.querySelector(`.piece[data-square="${squareName(from)}"]`);
   const text = notationFor(from, to);
   const snapshot = takeSnapshot();
   const u = pos.make((from << 8) | to);
@@ -531,6 +566,7 @@ function play(from, to) {
   targets = [];
   lastMove = { from, to };
   render();
+  slidePiece(moverEl, from, to);
   renderMoves();
   renderStatus();
   updateEval();
@@ -631,6 +667,7 @@ function finishBonusStep(dest) {
   targets = [];
 
   if (dest !== null) {
+    const moverEl = piecesLayer.querySelector(`.piece[data-square="${squareName(moverSq)}"]`);
     const text = notationFor(moverSq, dest);
     const snapshot = takeSnapshot();
     pos.turn = RED;
@@ -640,6 +677,7 @@ function finishBonusStep(dest) {
     notePosition(RED);
     lastMove = { from: moverSq, to: dest };
     render();
+    slidePiece(moverEl, moverSq, dest);
     renderMoves();
     renderStatus();
     updateEval();
@@ -715,6 +753,7 @@ async function botTurn() {
   const chosen = avoidingRepetition(res);
   const from = chosen >> 8;
   const to = chosen & 255;
+  const moverEl = piecesLayer.querySelector(`.piece[data-square="${squareName(from)}"]`);
   const text = notationFor(from, to);
   const snapshot = takeSnapshot();
   const u = pos.make(chosen);
@@ -725,6 +764,7 @@ async function botTurn() {
   lastMove = { from, to };
   busy = false;
   render();
+  slidePiece(moverEl, from, to);
   renderMoves();
   updateEval();
   updateHud();

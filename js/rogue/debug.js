@@ -77,6 +77,38 @@ let moveSource = null;
 const pctX = (sq) => (fileOf(sq) / 8) * 100;
 const pctY = (sq) => ((9 - rankOf(sq)) / 9) * 100;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const SLIDE_CURVE = 'cubic-bezier(0.2, 0.7, 0.3, 1)';
+const SLIDE_MS = 220;
+
+function slidePiece(source, from, to) {
+  if (!source) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const landing = piecesLayer.querySelector(`.piece[data-square="${squareName(to)}"]`);
+  const ghost = source.cloneNode(true);
+  ghost.classList.remove('sel');
+  ghost.classList.add('sliding');
+  ghost.removeAttribute('data-square');
+  ghost.style.left = `${pctX(from)}%`;
+  ghost.style.top = `${pctY(from)}%`;
+  ghost.style.transition = 'none';
+  piecesLayer.appendChild(ghost);
+  if (landing) landing.style.visibility = 'hidden';
+
+  void ghost.offsetWidth;
+
+  const ms = SLIDE_MS;
+  ghost.style.transition = `left ${ms}ms ${SLIDE_CURVE}, top ${ms}ms ${SLIDE_CURVE}`;
+  ghost.style.left = `${pctX(to)}%`;
+  ghost.style.top = `${pctY(to)}%`;
+
+  const done = () => {
+    ghost.remove();
+    if (landing && landing.isConnected) landing.style.visibility = '';
+  };
+  ghost.addEventListener('transitionend', done, { once: true });
+  setTimeout(done, ms + 80);
+}
 
 let toastTimer = null;
 function toast(msg) {
@@ -268,6 +300,7 @@ function tryCicadaShell() {
 
 function play(from, to) {
   const mover = pos.turn;
+  const moverEl = piecesLayer.querySelector(`.piece[data-square="${squareName(from)}"]`);
   const text = notationFor(from, to);
   const u = pos.make((from << 8) | to);
   history.push({ from, to, u, text });
@@ -276,6 +309,7 @@ function play(from, to) {
   targets = [];
   lastMove = { from, to };
   render();
+  slidePiece(moverEl, from, to);
   renderMoves();
   renderStatus();
   updateEval();
@@ -375,6 +409,7 @@ function finishBonusStep(dest) {
   targets = [];
 
   if (dest !== null) {
+    const moverEl = piecesLayer.querySelector(`.piece[data-square="${squareName(moverSq)}"]`);
     const text = notationFor(moverSq, dest);
     pos.turn = moverSide;
     const u = pos.make((moverSq << 8) | dest);
@@ -382,6 +417,7 @@ function finishBonusStep(dest) {
     plies.push(text);
     lastMove = { from: moverSq, to: dest };
     render();
+    slidePiece(moverEl, moverSq, dest);
     renderMoves();
     renderStatus();
     updateEval();
@@ -423,9 +459,15 @@ async function botTurn() {
   const dwell = Math.max(0, 240 - (performance.now() - started));
   if (dwell) await sleep(dwell);
 
+  let moverEl = null;
+  let slideFrom = null;
+  let slideTo = null;
   if (res.move) {
     const from = res.move >> 8;
     const to = res.move & 255;
+    moverEl = piecesLayer.querySelector(`.piece[data-square="${squareName(from)}"]`);
+    slideFrom = from;
+    slideTo = to;
     const text = notationFor(from, to);
     const u = pos.make(res.move);
     history.push({ from, to, u, text });
@@ -451,6 +493,7 @@ async function botTurn() {
 
   busy = false;
   render();
+  if (moverEl) slidePiece(moverEl, slideFrom, slideTo);
   renderMoves();
   renderStatus();
   updateEval();

@@ -326,6 +326,17 @@
   border: 1px solid rgba(198, 40, 40, 0.25);
 }
 
+.enemy-buff-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(121, 74, 21, 0.15);
+  color: #794a15;
+  font-weight: 700;
+  margin-right: 4px;
+  border: 1px solid rgba(121, 74, 21, 0.25);
+}
+
 .hint {
   margin: 0;
   font-size: 12px;
