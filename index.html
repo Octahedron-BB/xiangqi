@@ -32,7 +32,13 @@
 
   <aside class="panel">
     <header class="panel-head">
-      <h1>象棋</h1>
+      <div class="panel-head-row">
+        <h1>象棋</h1>
+        <div class="mode-links">
+          <a class="mode-link rogue" href="rogue.html" title="进入劫棋演义肉鸽闯关">⚔️ 劫棋肉鸽 →</a>
+          <a class="mode-link sandbox" href="debug.html" title="进入自由演武沙盒">🛠 沙盒 →</a>
+        </div>
+      </div>
       <p class="status" id="status">轮到你走</p>
     </header>
 
@@ -49,19 +55,21 @@
       </div>
     </div>
 
-    <div class="group">
-      <label class="label">AI 自战等级</label>
-      <div class="opponent">
-        <span class="side-tag red">红</span>
-        <img id="redAvatar" class="avatar" src="assets/bots/bot-01.svg" alt="红方头像">
-        <select id="redLevel" aria-label="红方 AI 等级"></select>
+    <details class="group ai-battle-details">
+      <summary class="label ai-battle-summary">AI 自战等级设置 ▾</summary>
+      <div class="ai-battle-body">
+        <div class="opponent">
+          <span class="side-tag red">红</span>
+          <img id="redAvatar" class="avatar" src="assets/bots/bot-01.svg" alt="红方头像">
+          <select id="redLevel" aria-label="红方 AI 等级"></select>
+        </div>
+        <div class="opponent">
+          <span class="side-tag black">黑</span>
+          <img id="blackAvatar" class="avatar" src="assets/bots/bot-03.svg" alt="黑方头像">
+          <select id="blackLevel" aria-label="黑方 AI 等级"></select>
+        </div>
       </div>
-      <div class="opponent">
-        <span class="side-tag black">黑</span>
-        <img id="blackAvatar" class="avatar" src="assets/bots/bot-03.svg" alt="黑方头像">
-        <select id="blackLevel" aria-label="黑方 AI 等级"></select>
-      </div>
-    </div>
+    </details>
 
     <div class="group buttons">
       <button id="btnNew" class="primary">新局</button>
@@ -71,21 +79,21 @@
       <button id="btnAuto">AI 自战</button>
     </div>
 
+    <div class="group fen-group">
+      <div class="fen-row">
+        <input id="fen" class="mono" spellcheck="false" placeholder="局面 FEN" aria-label="FEN">
+        <button id="btnLoadFen" class="ghost" title="载入输入的 FEN 局面">载入</button>
+        <button id="btnCopyFen" title="复制当前局面 FEN">复制</button>
+      </div>
+      <div class="engine-info-row">
+        <span class="engine-state" id="engineState">加载中…</span>
+        <span class="engine-line mono" id="engineInfo">&nbsp;</span>
+      </div>
+    </div>
+
     <div class="group grow">
       <label class="label">着法</label>
       <ol class="moves" id="moves"></ol>
-    </div>
-
-    <div class="group engine">
-      <label class="label">引擎</label>
-      <div class="engine-line"><span id="engineState">加载中…</span></div>
-      <div class="engine-line mono" id="engineInfo">&nbsp;</div>
-      <div class="fen-row">
-        <input id="fen" class="mono" spellcheck="false" aria-label="FEN">
-        <button id="btnCopyFen" title="复制 FEN">复制</button>
-      </div>
-      <button id="btnLoadFen" class="ghost">载入 FEN</button>
-      <a class="rogue-link" href="rogue.html">试玩 Roguelike 原型 →</a>
     </div>
   </aside>
 </div>
