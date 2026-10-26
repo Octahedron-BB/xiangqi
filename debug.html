@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>象棋 Roguelike · 调试沙盒实验室</title>
+<meta name="theme-color" content="#b1624d">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23ab281a'/%3E%3Ctext x='16' y='23' font-size='19' text-anchor='middle' fill='%23fff' font-family='serif'%3E%E5%AE%9E%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="rogue.css">
+<style>
+.debug-page-panel {
+  flex: 0 0 380px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+.debug-section-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fdfcf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.debug-sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid rgba(120, 90, 70, 0.1);
+  padding-bottom: 4px;
+}
+.dbg-tool-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.dbg-tool-btn {
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s;
+  text-align: center;
+}
+.dbg-tool-btn:hover { background: #f5eedf; }
+.dbg-tool-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.palette-piece-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.palette-btn {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1.5px solid #ccc;
+  font-weight: bold;
+  font-size: 14px;
+  cursor: pointer;
+  background: #fff;
+  padding: 0;
+  transition: all 0.15s;
+}
+.palette-btn.red { color: var(--red); border-color: var(--red); }
+.palette-btn.black { color: #222; border-color: #555; }
+.palette-btn.active {
+  transform: scale(1.15);
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
+  background: #ffeaa7;
+}
+.tiers-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+.tier-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11.5px;
+}
+.tier-row select {
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+}
+.fen-box {
+  display: flex;
+  gap: 6px;
+}
+.fen-input {
+  flex: 1;
+  font-size: 11px;
+  font-family: monospace;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="board-area">
+    <div class="board-shell">
+      <div class="board" id="board">
+        <div class="grid" id="grid">
+          <img class="board-grid" src="assets/board/board-lines.svg" alt="" draggable="false">
+          <div class="layer" id="cells"></div>
+          <div class="layer" id="marks"></div>
+          <div class="layer" id="pieces"></div>
+        </div>
+        <div class="coords" id="coords"></div>
+      </div>
+    </div>
+    <div class="scorebar" id="scorebar">
+      <span class="side red" id="sideRed">我</span>
+      <div class="bar"><div class="bar-fill" id="barFill"></div></div>
+      <span class="side black" id="sideBlack">敌</span>
+      <span class="eval" id="evalText">—</span>
+    </div>
+  </section>
+
+  <aside class="panel debug-page-panel">
+    <header class="panel-head">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <h1>劫棋 · 调试沙盒</h1>
+        <a class="back" href="rogue.html" style="margin:0">← 返回闯关</a>
+      </div>
+      <p class="status" id="status">红方走棋</p>
+    </header>
+
+    <!-- 1. 操作模式 -->
+    <div class="debug-section-card">
+      <div class="debug-sec-head">
+        <span>操作工具模式</span>
+        <span id="currentToolTip" style="font-size:11px;color:var(--muted)">走子对战</span>
+      </div>
+      <div class="dbg-tool-grid" id="dbgToolGrid">
+        <button class="dbg-tool-btn active" data-tool="normal" type="button">🎮 走子对战</button>
+        <button class="dbg-tool-btn" data-tool="add" type="button">➕ 自由加子</button>
+        <button class="dbg-tool-btn" data-tool="remove" type="button">❌ 减子橡皮</button>
+        <button class="dbg-tool-btn" data-tool="move" type="button">✋ 自由移子</button>
+      </div>
+      <div style="font-size:11.5px;color:var(--muted);line-height:1.4" id="toolDesc">
+        • 走子对战：点击红子落子，黑方 AI 自动正常思考并应招！<br>
+        • 快捷删子：鼠标右键点击棋盘上任意棋子可直接秒删。
+      </div>
+    </div>
+
+    <!-- 2. 棋子调色盘 (自由加子) -->
+    <div class="debug-section-card" id="dbgPaletteCard">
+      <div class="debug-sec-head">
+        <span>棋子调色盘</span>
+        <div class="palette-row">
+          <button class="dbg-tab active red" id="dbgTabRed" type="button">红方</button>
+          <button class="dbg-tab" id="dbgTabBlack" type="button">黑方</button>
+        </div>
+      </div>
+      <div class="palette-piece-grid" id="dbgPaletteGrid"></div>
+      <div style="font-size:11px;color:var(--muted)">选中上方棋子后，点击棋盘任意格子直接放置。</div>
+    </div>
+
+    <!-- 3. 红方走法升级 (Tier) -->
+    <div class="debug-section-card">
+      <div class="debug-sec-head">
+        <span>红方走法等级 (Tier)</span>
+        <button class="dbg-sm-btn" id="btnMaxTiers" type="button" style="font-size:11px">一键满级</button>
+      </div>
+      <div class="tiers-container" id="redTiersContainer"></div>
+    </div>
+
+    <!-- 4. 黑方走法升级 (Tier) -->
+    <div class="debug-section-card">
+      <div class="debug-sec-head">
+        <span>黑方走法等级 (Boss 特权测试)</span>
+      </div>
+      <div class="tiers-container" id="blackTiersContainer"></div>
+    </div>
+
+    <!-- 5. 机器人与局面控制 -->
+    <div class="debug-section-card">
+      <div class="debug-sec-head">
+        <span>机器人与走棋</span>
+      </div>
+      <div class="debug-btn-row">
+        <button class="dbg-action-btn" id="btnBotMoveNow" type="button">🤖 让黑方走一步</button>
+        <button class="dbg-action-btn" id="btnFlipTurn" type="button">🔄 切换走子方</button>
+      </div>
+      <div class="debug-row" style="font-size:12px;margin-top:2px;">
+        <label>AI 深度：</label>
+        <select id="selectAiDepth" class="dbg-select" style="max-width:90px">
+          <option value="2">D2 浅算</option>
+          <option value="3">D3 进阶</option>
+          <option value="4" selected>D4 标准</option>
+          <option value="5">D5 高难</option>
+          <option value="6">D6 极深</option>
+        </select>
+        <label style="margin-left:8px">用时：</label>
+        <select id="selectAiTime" class="dbg-select" style="max-width:90px">
+          <option value="200">200 ms</option>
+          <option value="500" selected>500 ms</option>
+          <option value="1000">1000 ms</option>
+          <option value="2000">2000 ms</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- 6. 关卡预设载入与局面操作 -->
+    <div class="debug-section-card">
+      <div class="debug-sec-head">
+        <span>关卡预设与局面</span>
+      </div>
+      <div class="debug-row">
+        <select id="selectPresetLevel" class="dbg-select"></select>
+        <button class="dbg-action-btn" id="btnLoadPreset" type="button" style="flex:0 0 76px">载入此关</button>
+      </div>
+      <div class="debug-btn-row" style="margin-top:4px;">
+        <button class="dbg-action-btn" id="btnStandardXiangqi" type="button">标准象棋开局</button>
+        <button class="dbg-action-btn danger" id="btnClearBoard" type="button">清空(留将)</button>
+      </div>
+    </div>
+
+    <!-- 7. FEN 导入/导出 -->
+    <div class="debug-section-card">
+      <div class="debug-sec-head">
+        <span>FEN 局面串</span>
+      </div>
+      <div class="fen-box">
+        <input type="text" id="fenInput" class="fen-input" placeholder="FEN 代码">
+        <button class="dbg-sm-btn" id="btnApplyFen" type="button">载入</button>
+        <button class="dbg-sm-btn" id="btnCopyFen" type="button">复制</button>
+      </div>
+    </div>
+
+    <!-- 8. 着法与 AI 思考 -->
+    <div class="debug-section-card" style="flex:1 1 auto;min-height:120px;">
+      <div class="debug-sec-head">
+        <span>着法记谱</span>
+        <span id="aiInfo" style="font-size:11px;color:var(--muted)">&nbsp;</span>
+      </div>
+      <ol class="moves" id="moves" style="max-height:160px;overflow-y:auto;margin:0"></ol>
+    </div>
+  </aside>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="js/rogue/debug.js"></script>
+</body>
+</html>

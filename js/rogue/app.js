@@ -3,17 +3,17 @@
 // reset.
 
 import {
-  RED, BLACK, K, R,
-  TYPE_LETTER, typeOfCode, sideOfCode,
+  RED, BLACK, EMPTY, K, A, E, H, R, C, P,
+  TYPE_LETTER, typeOfCode, sideOfCode, codeOf,
   squareName, nameSquare, fileOf, rankOf,
 } from './xiangqi.js';
 import { chooseMove, evaluate } from './ai.js';
 import { LEVELS } from './levels.js';
 import {
   createRun, positionFor, dropFromRoster, addToRoster, attackersLeft,
-  itemCount, takeItem, serializeRun, deserializeRun,
+  itemCount, takeItem, serializeRun, deserializeRun, letterIndex,
 } from './run.js';
-import { drawRewards, applyReward, describeBuild, describeArmy } from './rewards.js';
+import { drawRewards, applyReward, describeBuild, describeArmy, PIECE_CN } from './rewards.js';
 import { buildShop, buy } from './shop.js';
 import { chineseNotation } from '../notation.js';
 
@@ -63,6 +63,8 @@ let plies = [];
 let lastMove = null;
 let finished = false;
 let busy = false;
+let stageKills = 0;
+let bonusMover = null;
 // bumps whenever the board is replaced underneath an in-flight bot reply
 let epoch = 0;
 // repetition bookkeeping: position key -> how often seen, and when it last was
@@ -238,15 +240,35 @@ function startLevel(index, opts = {}) {
   lastMove = null;
   finished = false;
   busy = false;
+  stageKills = 0;
+  bonusMover = null;
   statusEl.className = 'status';
   statusEl.textContent = '红方走棋';
   resetRepetition();
 
-  levelPill.textContent = `第 ${index + 1} / ${LEVELS.length} 关`;
+  levelPill.textContent = level.isBoss
+    ? `第 ${index + 1} / ${LEVELS.length} 关【首领】`
+    : `第 ${index + 1} / ${LEVELS.length} 关`;
+  levelPill.classList.toggle('boss', !!level.isBoss);
   levelName.textContent = level.name;
-  goalTag.textContent = level.goal === 'mate' ? '擒王' : '歼灭';
-  goalText.textContent = level.goalText;
-  levelTip.textContent = level.tip;
+  if (level.isBoss) {
+    goalTag.textContent = '首领';
+    goalTag.className = 'goal-tag boss';
+  } else if (level.bounty) {
+    goalTag.textContent = '悬赏';
+    goalTag.className = 'goal-tag bounty';
+  } else {
+    goalTag.textContent = '擒王';
+    goalTag.className = 'goal-tag';
+  }
+  goalText.textContent = level.bounty
+    ? `${level.goalText} · 击破敌子获额外赏金`
+    : level.goalText;
+  if (level.bossBuff) {
+    levelTip.innerHTML = `<span class="boss-buff-pill">首领特性：${level.bossBuff.name}</span>${level.bossBuff.desc}。<br>${level.tip}`;
+  } else {
+    levelTip.textContent = level.tip;
+  }
   aiInfoEl.innerHTML = '&nbsp;';
   updateHud();
 
@@ -299,11 +321,22 @@ function repetitionVerdict(cycleStart) {
 }
 
 // A red piece leaving the board leaves the roster too — that is the whole cost
-// model. Called right after pos.make().
+// model. A black non-king piece leaving the board counts toward stage kill bounty.
 function noteCapture(u) {
-  if (!u.cap || sideOfCode(u.cap) !== RED) return;
-  dropFromRoster(run, TYPE_LETTER[typeOfCode(u.cap)]);
-  updateHud();
+  if (!u.cap) return;
+  const side = sideOfCode(u.cap);
+  if (side === RED) {
+    dropFromRoster(run, TYPE_LETTER[typeOfCode(u.cap)]);
+    updateHud();
+  } else if (side === BLACK && typeOfCode(u.cap) !== K) {
+    stageKills += 1;
+    // 兵路线 B T3【神兵破阵】: 吃子额外奖励 +3 金币
+    if (typeOfCode(u.moving) === P && pos.branch?.[RED]?.[P] === 'B' && pos.tier[RED][P] >= 3) {
+      run.gold += 3;
+      toast('【神兵破阵】吃子额外奖励 +3 金！');
+      updateHud();
+    }
+  }
 }
 
 function notationFor(from, to) {
@@ -337,6 +370,105 @@ function play(from, to) {
   renderMoves();
   renderStatus();
   updateEval();
+
+  if (finishIfOver()) return;
+
+  // Optional bonus step checks for Red
+  if (mover === RED) {
+    const pieceType = typeOfCode(u.moving);
+    // 1. 车路线 B T3【雷霆万钧】: 直线滑行超过 4 格吃子后，可选择待命或再走一步空格（不可吃子）
+    if (pieceType === R && pos.branch?.[RED]?.[R] === 'B' && pos.tier[RED][R] >= 3 && u.cap) {
+      const dist = Math.abs(fileOf(to) - fileOf(from)) + Math.abs(rankOf(to) - rankOf(from));
+      if (dist > 4 && triggerBonusStep('r', to)) return;
+    }
+    // 2. 马路线 B T3【连环步】: 移动若未吃子，可选择待命或再斜走一步空格（不可吃子）
+    if (pieceType === H && pos.branch?.[RED]?.[H] === 'B' && pos.tier[RED][H] >= 3 && !u.cap) {
+      if (triggerBonusStep('n', to)) return;
+    }
+  }
+
+  botTurn();
+}
+
+function triggerBonusStep(type, sq) {
+  const legalQuiet = [];
+  const f = fileOf(sq);
+  const r = rankOf(sq);
+  const moverCode = pos.board[sq];
+
+  if (type === 'r') {
+    // Rook: quiet orthogonal moves only (cannot capture)
+    for (const [df, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      let nf = f + df;
+      let nr = r + dr;
+      while (nf >= 0 && nf <= 8 && nr >= 0 && nr <= 9) {
+        const dest = nr * 9 + nf;
+        if (pos.board[dest] !== EMPTY) break; // cannot capture or jump
+        pos.board[dest] = moverCode;
+        pos.board[sq] = EMPTY;
+        const safe = !pos.inCheck(RED);
+        pos.board[sq] = moverCode;
+        pos.board[dest] = EMPTY;
+        if (safe) legalQuiet.push(dest);
+        nf += df;
+        nr += dr;
+      }
+    }
+  } else if (type === 'n') {
+    // Horse: quiet diagonal steps 1 square (cannot capture)
+    for (const [df, dr] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const nf = f + df;
+      const nr = r + dr;
+      if (nf >= 0 && nf <= 8 && nr >= 0 && nr <= 9) {
+        const dest = nr * 9 + nf;
+        if (pos.board[dest] === EMPTY) {
+          pos.board[dest] = moverCode;
+          pos.board[sq] = EMPTY;
+          const safe = !pos.inCheck(RED);
+          pos.board[sq] = moverCode;
+          pos.board[dest] = EMPTY;
+          if (safe) legalQuiet.push(dest);
+        }
+      }
+    }
+  }
+
+  if (!legalQuiet.length) return false;
+
+  bonusMover = { type, sq };
+  selected = sq;
+  targets = legalQuiet;
+  render();
+  renderMarks();
+  const name = type === 'r' ? '战车【雷霆万钧】' : '神骑【连环步】';
+  statusEl.className = 'status';
+  statusEl.textContent = `${name}：可再走一步空格（不可吃子），或点击自身结束`;
+  return true;
+}
+
+function finishBonusStep(dest) {
+  const moverSq = bonusMover.sq;
+  bonusMover = null;
+  selected = null;
+  targets = [];
+
+  if (dest !== null) {
+    const text = notationFor(moverSq, dest);
+    pos.turn = RED;
+    const u = pos.make((moverSq << 8) | dest);
+    history.push({ from: moverSq, to: dest, u, text });
+    plies.push(text);
+    notePosition(RED);
+    lastMove = { from: moverSq, to: dest };
+    render();
+    renderMoves();
+    renderStatus();
+    updateEval();
+  } else {
+    render();
+    renderStatus();
+  }
+
   if (!finishIfOver()) botTurn();
 }
 
@@ -452,14 +584,18 @@ function finishIfOver() {
   return false;
 }
 
-/** Gold for this clear: a base plus a bonus for every ply saved against par. */
+/** Gold for this clear: a base plus speed bonus, and optional kill bounties in bounty stages. */
 function awardGold() {
   const par = level.par ?? 40;
   const spare = Math.max(0, par - plies.length);
   const base = level.gold ?? 10;
-  const gained = base + spare * 2;
+  const speedBonus = spare * 2;
+  const hasBounty = !!level.bounty;
+  const killBonus = hasBounty ? stageKills * 2 : 0;
+  const wipeoutBonus = (hasBounty && blackPiecesLeft() === 0) ? 10 : 0;
+  const gained = base + speedBonus + killBonus + wipeoutBonus;
   run.gold += gained;
-  return { gained, base, spare };
+  return { gained, base, spare, speedBonus, stageKills, killBonus, wipeoutBonus, hasBounty };
 }
 
 function win(reason) {
@@ -471,10 +607,15 @@ function win(reason) {
   const last = run.level === LEVELS.length - 1;
   const pay = awardGold();
   updateHud();
-  const payText = `+${pay.gained} 金`;
+  const bonusParts = [`基础 +${pay.base}`];
+  if (pay.speedBonus > 0) bonusParts.push(`速通 +${pay.speedBonus}`);
+  if (pay.killBonus > 0) bonusParts.push(`悬赏(${pay.stageKills}子) +${pay.killBonus}`);
+  if (pay.wipeoutBonus > 0) bonusParts.push(`全歼特赏 +${pay.wipeoutBonus}`);
+  const payText = `+${pay.gained} 金（${bonusParts.join('，')}）`;
+  const victoryPrefix = last ? '通关！' : (level.isBoss ? '击破首领！' : '过关！');
   statusEl.textContent = reason
-    ? `过关！${reason}　${payText}`
-    : (last ? `通关！　${payText}` : `过关！　${payText}`);
+    ? `${victoryPrefix}${reason}　${payText}`
+    : `${victoryPrefix}　${payText}`;
   render();
   if (last) {
     showEnding();
@@ -554,7 +695,13 @@ function openRewards(pay) {
     return;
   }
   const left = run.pending;
-  const payNote = pay ? `　本关 +${pay.gained} 金，现有 ${run.gold} 金` : '';
+  const payParts = pay ? [
+    `基础 +${pay.base}`,
+    pay.speedBonus > 0 ? `速通 +${pay.speedBonus}` : null,
+    pay.killBonus > 0 ? `歼敌 +${pay.killBonus}` : null,
+    pay.wipeoutBonus > 0 ? `全歼 +${pay.wipeoutBonus}` : null,
+  ].filter(Boolean).join('，') : '';
+  const payNote = pay ? `　本关 +${pay.gained} 金（${payParts}），现有 ${run.gold} 金` : '';
   showOverlay({
     kicker: `第 ${run.level + 1} 关通过${payNote}`,
     title: left > 1 ? `再选一项（还剩 ${left} 次）` : '选一项奖励',
@@ -603,8 +750,8 @@ function showEnding() {
   run.status = 'cleared';
   const build = describeBuild(run);
   showOverlay({
-    kicker: '通关',
-    title: '你走完了这一趟',
+    kicker: '平定天下 · 劫棋通关',
+    title: '你击溃了天武神尊，走完了二十关征程',
     sub: `${describeArmy(run)}${build ? `　|　最终 build：${build}` : '　|　你一个强化都没要，纯靠棋力走完了。'}` +
       `　|　剩 ${run.gold} 金`,
     buttons: [{
@@ -627,10 +774,17 @@ function showOverlay({ kicker = '', title = '', sub = '', cards = [], buttons = 
   ovFoot.textContent = '';
   for (const card of cards) {
     const btn = document.createElement('button');
-    btn.className = `card card-${card.kind}`;
+    btn.className = `card card-${card.kind}${card.rarity ? ` card-${card.rarity}` : ''}`;
     const tag = document.createElement('span');
     tag.className = 'card-tag';
     tag.textContent = card.tag;
+    if (card.rarity) {
+      const rarityBadge = document.createElement('span');
+      rarityBadge.className = `rarity-pill rarity-${card.rarity}`;
+      const rarityNames = { common: '普通', rare: '稀有', epic: '史诗', legendary: '传说' };
+      rarityBadge.textContent = rarityNames[card.rarity] || card.rarity;
+      tag.appendChild(rarityBadge);
+    }
     const head = document.createElement('span');
     head.className = 'card-title';
     head.textContent = card.title;
@@ -674,6 +828,7 @@ function undoStep() {
   if (busy || !history.length) return false;
   epoch++;
   finished = false;
+  bonusMover = null;
   statusEl.className = 'status';
   do {
     const h = history.pop();
@@ -710,7 +865,26 @@ function useUndo() {
 }
 
 function onSquare(sq) {
-  if (busy || finished || pos.turn !== RED || !overlayEl.hidden) return;
+  if (busy || finished || !overlayEl.hidden) return;
+
+  // Handle bonus step state (马连环步 / 车雷霆万钧)
+  if (bonusMover) {
+    if (sq === bonusMover.sq) {
+      // 点击棋子自身结束回合
+      finishBonusStep(null);
+      return;
+    }
+    if (targets.includes(sq)) {
+      // 点击目标空格追加一步
+      finishBonusStep(sq);
+      return;
+    }
+    // 点击其他无效位置直接结束追加回合
+    finishBonusStep(null);
+    return;
+  }
+
+  if (pos.turn !== RED) return;
   if (selected !== null && targets.includes(sq)) {
     play(selected, sq);
     return;
@@ -729,7 +903,7 @@ function onSquare(sq) {
 }
 
 cellsLayer.addEventListener('click', (ev) => {
-  const cell = ev.target.closest('.cell');
+  const cell = ev.target.closest('[data-square]');
   if (!cell) return;
   onSquare(nameSquare(cell.dataset.square));
 });

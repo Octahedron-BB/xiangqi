@@ -40,6 +40,7 @@ export function createRun() {
     // 车 + 双兵: thin enough that keeping them alive is a real decision.
     roster: ['k', 'r', 'p', 'p'],
     tiers: { a: 0, b: 0, n: 0, r: 0, c: 0, p: 0 },
+    branches: { p: null, n: null, c: null, r: null },
     passives: {},
     armor: STARTING_ARMOR,
     extraBlackPawns: 0,
@@ -92,6 +93,7 @@ export function serializeRun(run) {
     level: run.level,
     roster: (run.snapshot ?? run.roster).slice(),
     tiers: { ...run.tiers },
+    branches: { ...run.branches },
     passives: { ...run.passives },
     armor: run.armor,
     gold: run.gold,
@@ -111,6 +113,7 @@ export function deserializeRun(data) {
   run.level = data.level | 0;
   run.roster = Array.isArray(data.roster) && data.roster.length ? data.roster.slice() : run.roster;
   run.tiers = { ...run.tiers, ...(data.tiers ?? {}) };
+  run.branches = { p: null, n: null, c: null, r: null, ...(data.branches ?? {}) };
   run.passives = { ...(data.passives ?? {}) };
   run.armor = data.armor | 0;
   run.gold = data.gold | 0;
@@ -255,7 +258,19 @@ export function positionFor(run, level) {
   const pos = new Position(fen);
   for (const [type, tier] of Object.entries(run.tiers)) {
     const idx = letterIndex(type);
-    if (idx && tier) pos.tier[0][idx] = tier;
+    if (idx && tier) {
+      pos.tier[0][idx] = tier;
+      pos.branch[0][idx] = run.branches?.[type] || 'A';
+    }
+  }
+  if (level.enemyTiers) {
+    for (const [type, tier] of Object.entries(level.enemyTiers)) {
+      const idx = letterIndex(type);
+      if (idx && tier) {
+        pos.tier[1][idx] = tier;
+        pos.branch[1][idx] = level.enemyBranches?.[type] || 'A';
+      }
+    }
   }
   return pos;
 }

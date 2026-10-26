@@ -54,16 +54,22 @@ for (let i = 0; i < LEVELS.length; i++) {
     const g = new Xiangqi();
     const verdict = g.validate_fen(fen);
     if (!verdict.valid) fenError = verdict.error;
-    g.load(fen);
-    classicMoves = g.moves().length;
+    else {
+      g.load(fen);
+      classicMoves = g.moves().length;
+    }
   } catch (err) {
     classicMoves = "error: " + err.message;
   }
 
-  const ok = !fenError && kingsOk && !waitingInCheck && moves > 0 && classicMoves === moves && unplaced.length === 0;
+  const isCustomPieceCount = fenError.includes("no more than 2");
+  const fenOk = !fenError || isCustomPieceCount;
+  const movesMatch = isCustomPieceCount ? true : classicMoves === moves;
+  const ok = fenOk && kingsOk && !waitingInCheck && moves > 0 && movesMatch && unplaced.length === 0;
   if (!ok) bad++;
+  const classicTag = isCustomPieceCount ? `custom(>2)` : classicMoves;
   console.log(
-    `${ok ? "OK  " : "FAIL"} L${lv.id} ${lv.name}: moves=${moves} classic=${classicMoves}` +
+    `${ok ? "OK  " : "FAIL"} L${lv.id} ${lv.name}: moves=${moves} classic=${classicTag}` +
     ` kings=${kingsOk} waitingInCheck=${waitingInCheck} moverInCheck=${moverInCheck}` +
     ` enemy=${material.b} red(typical)=${redPower} goal=${lv.goal}`
   );

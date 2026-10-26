@@ -10,14 +10,14 @@
 // things — enough for a real decision, not enough for everything.
 
 import { MAX_COUNT, addToRoster, countOf } from './run.js';
-import { MAX_TIER, TIERS, PIECE_CN, PASSIVES, applyReward } from './rewards.js';
+import { MAX_TIER, TIERS, PIECE_CN, PASSIVES, applyReward, RARITY_CONFIG, DEFAULT_RARITY } from './rewards.js';
 
 const TIER_ORDER = ['p', 'c', 'n', 'r', 'a', 'b'];
-const RECRUIT_ORDER = ['p', 'a', 'b', 'n', 'c'];
+const RECRUIT_ORDER = ['p', 'a', 'b', 'n', 'c', 'r'];
 
-const tierPrice = (to) => 22 + 12 * (to - 1);
+const tierPrice = (type, to) => 22 + 12 * (to - 1);
 
-const RECRUIT_PRICE = { p: 16, a: 22, b: 22, n: 34, c: 34 };
+const RECRUIT_PRICE = { p: 16, a: 22, b: 22, n: 34, c: 34, r: 48 };
 
 export const SHOP_GOODS = {
   undo: {
@@ -44,21 +44,37 @@ export function buildShop(run) {
     const current = run.tiers[type] ?? 0;
     if (current >= MAX_TIER[type]) continue;
     if (countOf(run, type) === 0) continue; // upgrading a type you lost is a dead buy
-    const to = current + 1;
-    stock.push({
-      key: `tier:${type}:${to}`,
-      kind: 'tier',
-      type,
-      to,
-      tag: '走法升级',
-      title: `${PIECE_CN[type]} · ${TIERS[type][to].name}`,
-      desc: TIERS[type][to].desc,
-      price: tierPrice(to),
-    });
+
+    const hasBranches = ['p', 'n', 'c', 'r'].includes(type);
+    const branches = hasBranches
+      ? (run.branches?.[type] ? [run.branches[type]] : ['A', 'B'])
+      : [null];
+
+    for (const branch of branches) {
+      const to = current + 1;
+      const key = branch ? `tier:${type}:${branch}:${to}` : `tier:${type}:${to}`;
+      const meta = RARITY_CONFIG[key] ?? DEFAULT_RARITY;
+      const spec = branch ? TIERS[type][branch][to] : TIERS[type][to];
+      const branchTag = branch === 'A' ? '路线甲' : branch === 'B' ? '路线乙' : '';
+      stock.push({
+        key,
+        kind: 'tier',
+        type,
+        branch,
+        to,
+        tag: branch ? `升级 · ${branchTag}` : '走法升级',
+        title: `${PIECE_CN[type]} · ${spec.name}`,
+        desc: spec.desc,
+        rarity: meta.rarity,
+        price: tierPrice(type, to),
+      });
+    }
   }
 
   for (const type of RECRUIT_ORDER) {
     if (countOf(run, type) >= MAX_COUNT[type]) continue;
+    const key = `passive:recruit_${type}`;
+    const meta = RARITY_CONFIG[key] ?? DEFAULT_RARITY;
     stock.push({
       key: `recruit:${type}`,
       kind: 'recruit',
@@ -66,6 +82,7 @@ export function buildShop(run) {
       tag: '补充子力',
       title: `补一个${PIECE_CN[type]}`,
       desc: `立刻往部队里加 1 个${PIECE_CN[type]}，永久留在你的部队里。`,
+      rarity: meta.rarity,
       price: RECRUIT_PRICE[type],
     });
   }
@@ -79,6 +96,7 @@ export function buildShop(run) {
       tag: '被动',
       title: SHOP_GOODS.armor.name,
       desc: PASSIVES.armor.desc,
+      rarity: 'epic',
       price: SHOP_GOODS.armor.price,
     });
   }

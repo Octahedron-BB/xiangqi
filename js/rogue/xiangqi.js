@@ -64,6 +64,8 @@ export class Position {
     this.turn = RED;
     // tier[side][type]: 0 = the site's standard move, 1..3 = upgraded
     this.tier = [new Uint8Array(8), new Uint8Array(8)];
+    // branch[side][type]: 'A' or 'B'
+    this.branch = [{}, {}];
     this.kings = [-1, -1];
     if (fen) this.load(fen);
   }
@@ -152,6 +154,7 @@ export class Position {
     next.turn = this.turn;
     next.tier[RED].set(this.tier[RED]);
     next.tier[BLACK].set(this.tier[BLACK]);
+    next.branch = [{ ...this.branch[0] }, { ...this.branch[1] }];
     next.kings = [this.kings[0], this.kings[1]];
     return next;
   }
@@ -200,14 +203,15 @@ export class Position {
       if (!c || (c > 8 ? BLACK : RED) !== side) continue;
       const f = fileOf(from);
       const r = rankOf(from);
+      const br = this.branch[side];
       switch (c & 7) {
         case K: this.#genKing(from, f, r, side, out); break;
         case A: this.#genAdvisor(from, f, r, side, tier[A], out); break;
         case E: this.#genElephant(from, f, r, side, tier[E], out); break;
-        case H: this.#genHorse(from, f, r, side, tier[H], out); break;
-        case R: this.#genRook(from, f, r, side, tier[R], out); break;
-        case C: this.#genCannon(from, f, r, side, tier[C], out); break;
-        case P: this.#genPawn(from, f, r, side, tier[P], out); break;
+        case H: this.#genHorse(from, f, r, side, tier[H], br[H] || 'A', out); break;
+        case R: this.#genRook(from, f, r, side, tier[R], br[R] || 'A', out); break;
+        case C: this.#genCannon(from, f, r, side, tier[C], br[C] || 'A', out); break;
+        case P: this.#genPawn(from, f, r, side, tier[P], br[P] || 'A', out); break;
         default: break;
       }
     }
@@ -275,8 +279,8 @@ export class Position {
     }
   }
 
-  #genHorse(from, f, r, side, tier, out) {
-    const legsCount = tier < 1;
+  #genHorse(from, f, r, side, tier, branch, out) {
+    const legsCount = branch === 'A' ? tier < 1 : true;
     for (const [df, dr, lf, lr] of HORSE_MOVES) {
       const nf = f + df;
       const nr = r + dr;
@@ -284,99 +288,248 @@ export class Position {
       if (legsCount && this.board[sqOf(f + lf, r + lr)] !== EMPTY) continue;
       this.#push(out, from, sqOf(nf, nr), side);
     }
-    if (tier < 2) return;
-    // 目: three cells long, one wide — (1,3)/(3,1) jumps.
-    for (const [df, dr] of MU_MOVES) {
-      const nf = f + df;
-      const nr = r + dr;
-      if (!onBoard(nf, nr)) continue;
-      this.#push(out, from, sqOf(nf, nr), side);
-    }
-    if (tier < 3) return;
-    // the third step lets the horse slip one square diagonally
-    for (const [df, dr] of DIAG) {
-      const nf = f + df;
-      const nr = r + dr;
-      if (onBoard(nf, nr)) this.#push(out, from, sqOf(nf, nr), side);
+    if (branch === 'A') {
+      if (tier >= 2) {
+        // 目: (±1,±3)/(±3,±1) 八个大跳点
+        for (const [df, dr] of MU_MOVES) {
+          const nf = f + df;
+          const nr = r + dr;
+          if (onBoard(nf, nr)) this.#push(out, from, sqOf(nf, nr), side);
+        }
+      }
+      if (tier >= 3) {
+        // 天马: (±2,±2) 田字跳跃，无视塞象眼，可过河
+        for (const [df, dr] of DIAG) {
+          const nf = f + df * 2;
+          const nr = r + dr * 2;
+          if (onBoard(nf, nr)) this.#push(out, from, sqOf(nf, nr), side);
+        }
+      }
+    } else {
+      // 路线 B【近战铁骑】
+      if (tier >= 1) {
+        // 斜步 1 格
+        for (const [df, dr] of DIAG) {
+          const nf = f + df;
+          const nr = r + dr;
+          if (onBoard(nf, nr)) this.#push(out, from, sqOf(nf, nr), side);
+        }
+      }
+      if (tier >= 2) {
+        // 近身刺: 正方向直走 1 格
+        for (const [df, dr] of ORTH) {
+          const nf = f + df;
+          const nr = r + dr;
+          if (onBoard(nf, nr)) this.#push(out, from, sqOf(nf, nr), side);
+        }
+      }
+      // T3【连环步】在 app.js 中作为可选追加移动处理
     }
   }
 
-  #genRook(from, f, r, side, tier, out) {
-    // 后: at tier 1+ the rook also slides diagonally, like a chess queen.
-    const dirs = tier >= 1 ? ALL_DIRS : ORTH;
-    for (const [df, dr] of dirs) {
+  #genRook(from, f, r, side, tier, branch, out) {
+    const canJumpAlly = branch === 'B' && tier >= 1;
+    const canJumpEnemy = branch === 'B' && tier >= 2;
+    for (const [df, dr] of ORTH) {
       let nf = f + df;
       let nr = r + dr;
+      let jumpedAlly = false;
+      let jumpedEnemy = false;
       while (onBoard(nf, nr)) {
         const sq = sqOf(nf, nr);
         const t = this.board[sq];
         if (t) {
-          if ((t > 8 ? BLACK : RED) !== side) out.push((from << 8) | sq);
-          break;
+          const isAlly = (t > 8 ? BLACK : RED) === side;
+          if (isAlly) {
+            if (canJumpAlly && !jumpedAlly) {
+              jumpedAlly = true;
+              nf += df;
+              nr += dr;
+              continue; // 贯石: 跃过首个友军继续冲锋
+            }
+            break;
+          } else {
+            if (canJumpEnemy && !jumpedEnemy) {
+              jumpedEnemy = true;
+              out.push((from << 8) | sq);
+              nf += df;
+              nr += dr;
+              continue; // 隔子冲杀: 越过首个敌子继续冲向下一敌子
+            }
+            out.push((from << 8) | sq);
+            break;
+          }
         }
         out.push((from << 8) | sq);
         nf += df;
         nr += dr;
       }
     }
-  }
-
-  #genCannon(from, f, r, side, tier, out) {
-    // screens: 1 -> 2 -> 3 as the cannon climbs
-    const maxScreens = tier >= 2 ? 3 : tier >= 1 ? 2 : 1;
-    for (const [df, dr] of ORTH) {
-      // 近身炮: point-blank capture with no screen. Only an enemy actually sitting
-      // next to the cannon, so this never duplicates the ordinary quiet slide.
-      if (tier >= 3) {
-        const af = f + df;
-        const ar = r + dr;
-        if (onBoard(af, ar)) {
-          const at = this.board[sqOf(af, ar)];
-          if (at && (at > 8 ? BLACK : RED) !== side) out.push((from << 8) | sqOf(af, ar));
-        }
-      }
-      let nf = f + df;
-      let nr = r + dr;
-      let pieces = 0;
-      while (onBoard(nf, nr)) {
-        const sq = sqOf(nf, nr);
-        const t = this.board[sq];
-        if (!t) {
-          if (pieces === 0) out.push((from << 8) | sq); // quiet slide
+    // 路线 A: 神后 (沿斜线滑行)
+    if (branch === 'A' && tier >= 1) {
+      const maxSteps = tier >= 3 ? 9 : tier;
+      for (const [df, dr] of DIAG) {
+        let nf = f + df;
+        let nr = r + dr;
+        let steps = 0;
+        while (onBoard(nf, nr) && steps < maxSteps) {
+          steps++;
+          const sq = sqOf(nf, nr);
+          const t = this.board[sq];
+          if (t) {
+            if ((t > 8 ? BLACK : RED) !== side) out.push((from << 8) | sq);
+            break;
+          }
+          out.push((from << 8) | sq);
           nf += df;
           nr += dr;
-          continue;
         }
-        pieces++;
-        const enemy = (t > 8 ? BLACK : RED) !== side;
-        if (pieces >= 2 && pieces - 1 <= maxScreens && enemy) out.push((from << 8) | sq);
-        if (pieces > maxScreens) break;
-        nf += df;
-        nr += dr;
       }
     }
   }
 
-  #genPawn(from, f, r, side, tier, out) {
+  #genCannon(from, f, r, side, tier, branch, out) {
+    if (branch === 'B') {
+      // 路线 B【神火游击】
+      // T1 近身免架
+      if (tier >= 1) {
+        for (const [df, dr] of ORTH) {
+          const af = f + df;
+          const ar = r + dr;
+          if (onBoard(af, ar)) {
+            const at = this.board[sqOf(af, ar)];
+            if (at && (at > 8 ? BLACK : RED) !== side) out.push((from << 8) | sqOf(af, ar));
+          }
+        }
+      }
+      let hasAllyAdj = false;
+      if (tier >= 3) {
+        for (const [df, dr] of ORTH) {
+          const af = f + df;
+          const ar = r + dr;
+          if (onBoard(af, ar)) {
+            const at = this.board[sqOf(af, ar)];
+            if (at && (at > 8 ? BLACK : RED) === side) {
+              hasAllyAdj = true;
+              break;
+            }
+          }
+        }
+      }
+      for (const [df, dr] of ORTH) {
+        let nf = f + df;
+        let nr = r + dr;
+        let pieces = 0;
+        while (onBoard(nf, nr)) {
+          const sq = sqOf(nf, nr);
+          const t = this.board[sq];
+          if (!t) {
+            // T2 翻山游击: 跨过 1 个子后可继续在空格落子位移
+            if (pieces === 0 || (tier >= 2 && pieces === 1)) {
+              out.push((from << 8) | sq);
+            }
+            nf += df;
+            nr += dr;
+            continue;
+          }
+          pieces++;
+          const enemy = (t > 8 ? BLACK : RED) !== side;
+          if (pieces === 1 && hasAllyAdj && enemy && (t & 7) !== K) {
+            out.push((from << 8) | sq); // T3 自充炮台
+          } else if (pieces === 2 && enemy) {
+            out.push((from << 8) | sq); // 标准隔 1 子吃
+          }
+          if (pieces >= 2) break;
+          nf += df;
+          nr += dr;
+        }
+      }
+    } else {
+      // 路线 A【重炮超远狙击】
+      const maxScreens = tier >= 3 ? 9 : tier >= 2 ? 3 : tier >= 1 ? 2 : 1;
+      for (const [df, dr] of ORTH) {
+        let nf = f + df;
+        let nr = r + dr;
+        let pieces = 0;
+        while (onBoard(nf, nr)) {
+          const sq = sqOf(nf, nr);
+          const t = this.board[sq];
+          if (!t) {
+            if (pieces === 0) out.push((from << 8) | sq);
+            nf += df;
+            nr += dr;
+            continue;
+          }
+          pieces++;
+          const enemy = (t > 8 ? BLACK : RED) !== side;
+          if (pieces >= 2 && pieces - 1 <= maxScreens && enemy) {
+            if (pieces - 1 === 1 || (t & 7) !== K) {
+              out.push((from << 8) | sq);
+            }
+          }
+          if (pieces > maxScreens) break;
+          nf += df;
+          nr += dr;
+        }
+      }
+    }
+  }
+
+  #genPawn(from, f, r, side, tier, branch, out) {
     const fwd = side === RED ? 1 : -1;
     const nf1 = r + fwd;
     if (onBoard(f, nf1)) this.#push(out, from, sqOf(f, nf1), side);
-    if (tier >= 1) {
-      // two-square dash: needs the square in between clear; it may land on and
-      // capture an enemy piece, but it cannot vault over one.
-      const nr2 = r + fwd * 2;
-      if (onBoard(f, nr2) && this.board[sqOf(f, nf1)] === EMPTY) {
-        this.#push(out, from, sqOf(f, nr2), side);
+
+    if (branch === 'B') {
+      // 路线 B【战阵拒马】
+      if (tier >= 1) {
+        // 横行疾步: 左右横行 1~2 格
+        if (f > 0) this.#push(out, from, sqOf(f - 1, r), side);
+        if (f < 8) this.#push(out, from, sqOf(f + 1, r), side);
+        if (f > 1 && this.board[sqOf(f - 1, r)] === EMPTY) this.#push(out, from, sqOf(f - 2, r), side);
+        if (f < 7 && this.board[sqOf(f + 1, r)] === EMPTY) this.#push(out, from, sqOf(f + 2, r), side);
       }
-    }
-    const crossed = side === RED ? r >= 5 : r <= 4;
-    if (crossed || tier >= 2) {
-      if (f > 0) this.#push(out, from, sqOf(f - 1, r), side);
-      if (f < 8) this.#push(out, from, sqOf(f + 1, r), side);
-    }
-    if (tier >= 3) {
-      if (f > 0 && onBoard(f - 1, nf1)) this.#push(out, from, sqOf(f - 1, nf1), side);
-      if (f < 8 && onBoard(f + 1, nf1)) this.#push(out, from, sqOf(f + 1, nf1), side);
+      if (tier >= 2) {
+        // 金戈斜刺: 四向斜走一格
+        for (const [df, dr] of DIAG) {
+          const nf = f + df;
+          const nr = r + dr;
+          if (onBoard(nf, nr)) this.#push(out, from, sqOf(nf, nr), side);
+        }
+      }
+      if (tier >= 3) {
+        // 神兵破阵: 向前冲两格
+        const nr2 = r + fwd * 2;
+        if (onBoard(f, nr2) && this.board[sqOf(f, nf1)] === EMPTY) {
+          this.#push(out, from, sqOf(f, nr2), side);
+        }
+      }
+    } else {
+      // 路线 A【陷阵狂徒】
+      if (tier >= 1) {
+        const nr2 = r + fwd * 2;
+        if (onBoard(f, nr2) && this.board[sqOf(f, nf1)] === EMPTY) {
+          this.#push(out, from, sqOf(f, nr2), side);
+        }
+      }
+      const crossed = side === RED ? r >= 5 : r <= 4;
+      if (crossed || tier >= 2) {
+        if (f > 0) this.#push(out, from, sqOf(f - 1, r), side);
+        if (f < 8) this.#push(out, from, sqOf(f + 1, r), side);
+      }
+      if (tier >= 3) {
+        if (crossed) {
+          // 王步: 八方各走一格
+          for (const [df, dr] of ALL_DIRS) {
+            const nf = f + df;
+            const nr = r + dr;
+            if (onBoard(nf, nr)) this.#push(out, from, sqOf(nf, nr), side);
+          }
+        } else {
+          if (f > 0 && onBoard(f - 1, nf1)) this.#push(out, from, sqOf(f - 1, nf1), side);
+          if (f < 8 && onBoard(f + 1, nf1)) this.#push(out, from, sqOf(f + 1, nf1), side);
+        }
+      }
     }
   }
 
@@ -408,6 +561,20 @@ export class Position {
     const f = sq % 9;
     const r = (sq - f) / 9;
     const t = this.tier[by];
+    const br = this.branch[by];
+
+    // Branch B or exotic moves: evaluate through exact pseudo-move generation to prevent discrepancies
+    if (br[P] === 'B' || br[H] === 'B' || br[C] === 'B' || br[R] === 'B' || t[A] > 0 || t[E] > 0 || t[H] >= 3) {
+      const saved = this.turn;
+      this.turn = by;
+      const pseudo = this.pseudo([]);
+      this.turn = saved;
+      for (let i = 0; i < pseudo.length; i++) {
+        if ((pseudo[i] & 255) === sq) return true;
+      }
+      return false;
+    }
+
     const pawn = codeOf(by, P);
     const horse = codeOf(by, H);
     const rook = codeOf(by, R);
@@ -477,8 +644,9 @@ export class Position {
             // 近身炮 is point-blank only; a cannon further down the ray still
             // needs a screen, so distance matters here.
             if (c === cannon && cannonTier >= 3 && dist === 1) return true;
-          } else if (c === cannon && pieces - 1 <= maxScreens) {
-            return true; // exactly mirrors #genCannon's screen count
+          } else if (c === cannon && pieces - 1 === 1) {
+            // 隔2子/隔3子时不将军: 仅标准隔1子才算将军
+            return true;
           }
           if (pieces > maxScreens) break;
         }
@@ -487,13 +655,15 @@ export class Position {
       }
     }
 
-    // 后: the rook's diagonal slide reaches the king the same way its straight
-    // lines do — first piece on the diagonal decides.
+    // Rook diagonal checks: T1 = 1 step, T2 = 2 steps, T3+ = full queen ray
     if (t[R] >= 1) {
+      const maxSteps = t[R] >= 3 ? 9 : t[R];
       for (const [df, dr] of DIAG) {
         let nf = f + df;
         let nr = r + dr;
-        while (onBoard(nf, nr)) {
+        let steps = 0;
+        while (onBoard(nf, nr) && steps < maxSteps) {
+          steps++;
           const c = b[sqOf(nf, nr)];
           if (c) {
             if (c === rook) return true;

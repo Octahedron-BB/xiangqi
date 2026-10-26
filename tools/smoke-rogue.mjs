@@ -9,7 +9,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = process.env.CHROME_PATH || (
+  process.platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+);
 const PORT = 9339;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -118,7 +122,7 @@ async function main() {
       const out = { stages: [], rewards: [], errors: [] };
       if (!R) { out.fatal = 'no debug handle'; return out; }
       let guard = 0;
-      while (R.run.status === 'playing' && R.run.level < 8 && guard++ < 40) {
+      while (R.run.status === 'playing' && R.run.level < 20 && guard++ < 80) {
         const rosterBefore = R.run.roster.join('');
         R.pos.board[R.pos.kings[1]] = 0;
         R.pos.kings[1] = -1;
@@ -135,7 +139,7 @@ async function main() {
         }
         R.run.pending = 0;
         R.hideOverlay();
-        if (R.run.level >= 7) { out.finalArmy = R.run.army; break; }
+        if (R.run.level >= 19) { out.finalArmy = R.run.army; break; }
         R.startLevel(R.run.level + 1);
         await new Promise(r => setTimeout(r, 60));
         out.stages.push({

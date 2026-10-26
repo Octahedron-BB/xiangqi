@@ -1,0 +1,697 @@
+// Dedicated Interactive Debug Sandbox for Roguelike Xiangqi.
+
+import {
+  RED, BLACK, EMPTY, K, A, E, H, R, C, P,
+  TYPE_LETTER, typeOfCode, sideOfCode, codeOf,
+  squareName, nameSquare, fileOf, rankOf,
+  Position,
+} from './xiangqi.js';
+import { chooseMove, evaluate } from './ai.js';
+import { LEVELS } from './levels.js';
+import { createRun, positionFor, letterIndex } from './run.js';
+import { chineseNotation } from '../notation.js';
+import { PIECE_CN } from './rewards.js';
+
+const PIECE_FILE = { k: 'king', a: 'advisor', b: 'elephant', n: 'horse', r: 'rook', c: 'cannon', p: 'pawn' };
+
+const START_FEN = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR r - - 0 1';
+
+const el = (id) => document.getElementById(id);
+const cellsLayer = el('cells');
+const piecesLayer = el('pieces');
+const marksLayer = el('marks');
+const coordsLayer = el('coords');
+const gridEl = el('grid');
+const movesEl = el('moves');
+const statusEl = el('status');
+const aiInfoEl = el('aiInfo');
+const evalText = el('evalText');
+const barFill = el('barFill');
+const toastEl = el('toast');
+
+const dbgToolGrid = el('dbgToolGrid');
+const dbgTabRed = el('dbgTabRed');
+const dbgTabBlack = el('dbgTabBlack');
+const dbgPaletteGrid = el('dbgPaletteGrid');
+const redTiersContainer = el('redTiersContainer');
+const blackTiersContainer = el('blackTiersContainer');
+const btnBotMoveNow = el('btnBotMoveNow');
+const btnFlipTurn = el('btnFlipTurn');
+const selectAiDepth = el('selectAiDepth');
+const selectAiTime = el('selectAiTime');
+const selectPresetLevel = el('selectPresetLevel');
+const btnLoadPreset = el('btnLoadPreset');
+const btnStandardXiangqi = el('btnStandardXiangqi');
+const btnClearBoard = el('btnClearBoard');
+const btnMaxTiers = el('btnMaxTiers');
+const fenInput = el('fenInput');
+const btnApplyFen = el('btnApplyFen');
+const btnCopyFen = el('btnCopyFen');
+const currentToolTip = el('currentToolTip');
+
+let pos = new Position(START_FEN);
+let selected = null;
+let targets = [];
+let history = [];
+let plies = [];
+let lastMove = null;
+let busy = false;
+
+let currentTool = 'normal'; // 'normal' | 'add' | 'remove' | 'move'
+let activeSide = RED;
+let activePieceType = P;
+let moveSource = null;
+
+const pctX = (sq) => (fileOf(sq) / 8) * 100;
+const pctY = (sq) => ((9 - rankOf(sq)) / 9) * 100;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let toastTimer = null;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastEl.hidden = true; }, 1800);
+}
+
+/* ------------------------------------------------------------- board build */
+
+function buildCells() {
+  const frag = document.createDocumentFragment();
+  for (let sq = 0; sq < 90; sq++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.dataset.square = squareName(sq);
+    cell.style.left = `${pctX(sq)}%`;
+    cell.style.top = `${pctY(sq)}%`;
+    frag.appendChild(cell);
+  }
+  cellsLayer.appendChild(frag);
+}
+
+function buildCoords() {
+  for (let col = 0; col < 9; col++) {
+    for (const where of ['top', 'bottom']) {
+      const node = document.createElement('span');
+      node.className = `coord ${where}`;
+      node.style.left = `${(col / 8) * 100}%`;
+      node.textContent = where === 'top' ? String(col + 1) : String(9 - col);
+      coordsLayer.appendChild(node);
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ render */
+
+function render() {
+  piecesLayer.textContent = '';
+  for (let sq = 0; sq < 90; sq++) {
+    const c = pos.board[sq];
+    if (!c) continue;
+    const side = sideOfCode(c) === RED ? 'r' : 'b';
+    const letter = TYPE_LETTER[typeOfCode(c)];
+    const node = document.createElement('div');
+    node.className = `piece ${side}`;
+    node.dataset.square = squareName(sq);
+    node.dataset.type = letter;
+    node.style.left = `${pctX(sq)}%`;
+    node.style.top = `${pctY(sq)}%`;
+    if (selected === sq) node.classList.add('sel');
+    const img = document.createElement('img');
+    img.src = `assets/pieces/${PIECE_FILE[letter]}-${side === 'r' ? 'red' : 'black'}.svg`;
+    img.alt = '';
+    img.draggable = false;
+    node.appendChild(img);
+    piecesLayer.appendChild(node);
+  }
+  renderMarks();
+}
+
+function renderMarks() {
+  marksLayer.textContent = '';
+  if (lastMove) {
+    for (const [kind, sq] of [['from', lastMove.from], ['to', lastMove.to]]) {
+      const mark = document.createElement('div');
+      mark.className = `mark ${kind}`;
+      mark.style.left = `${pctX(sq)}%`;
+      mark.style.top = `${pctY(sq)}%`;
+      marksLayer.appendChild(mark);
+    }
+  }
+  for (const sq of targets) {
+    const mark = document.createElement('div');
+    mark.className = `mark ${pos.board[sq] ? 'cap' : 'dot'}`;
+    mark.style.left = `${pctX(sq)}%`;
+    mark.style.top = `${pctY(sq)}%`;
+    marksLayer.appendChild(mark);
+  }
+  if (currentTool === 'move' && moveSource !== null) {
+    const mark = document.createElement('div');
+    mark.className = 'mark debug-move-src';
+    mark.style.left = `${pctX(moveSource)}%`;
+    mark.style.top = `${pctY(moveSource)}%`;
+    marksLayer.appendChild(mark);
+  }
+}
+
+function renderMoves() {
+  movesEl.textContent = '';
+  plies.forEach((text, i) => {
+    const li = document.createElement('li');
+    li.textContent = `${i + 1}. ${text}`;
+    if (i === plies.length - 1) li.classList.add('cur');
+    movesEl.appendChild(li);
+  });
+  movesEl.scrollTop = movesEl.scrollHeight;
+}
+
+function renderStatus() {
+  if (busy) {
+    statusEl.className = 'status';
+    statusEl.textContent = '黑方机器人思考中…';
+    return;
+  }
+  const turnName = pos.turn === RED ? '红方' : '黑方';
+  const checked = pos.inCheck(pos.turn);
+  const legal = pos.legalMoves([]).length;
+  statusEl.className = 'status';
+  if (legal === 0) {
+    if (checked) {
+      statusEl.className = pos.turn === RED ? 'status lose' : 'status win';
+      statusEl.textContent = `${turnName}被绝杀！`;
+    } else {
+      statusEl.textContent = `${turnName}被困毙！`;
+    }
+    return;
+  }
+  statusEl.textContent = checked ? `${turnName}走棋（被将军！）` : `${turnName}走棋`;
+}
+
+function updateEval() {
+  const score = evaluate(pos);
+  const redPov = pos.turn === RED ? score : -score;
+  const clamped = Math.max(-1500, Math.min(1500, redPov));
+  const pct = 50 + (clamped / 1500) * 45;
+  barFill.style.width = `${pct}%`;
+  evalText.textContent = `${redPov > 0 ? '+' : ''}${(redPov / 100).toFixed(1)}`;
+  if (fenInput) fenInput.value = pos.fen();
+}
+
+/* ------------------------------------------------------------- sync & king */
+
+function resyncKings() {
+  pos.kings[RED] = -1;
+  pos.kings[BLACK] = -1;
+  for (let sq = 0; sq < 90; sq++) {
+    const c = pos.board[sq];
+    if (c && typeOfCode(c) === K) {
+      pos.kings[sideOfCode(c)] = sq;
+    }
+  }
+}
+
+/* ----------------------------------------------------------------- actions */
+
+function notationFor(from, to) {
+  if (typeOfCode(pos.board[from]) === R && fileOf(from) !== fileOf(to) && rankOf(from) !== rankOf(to)) {
+    return (squareName(from) + squareName(to)).toUpperCase();
+  }
+  const color = pos.turn === RED ? 'r' : 'b';
+  return chineseNotation(pos, {
+    from: squareName(from),
+    to: squareName(to),
+    color,
+    piece: TYPE_LETTER[typeOfCode(pos.board[from])],
+    iccs: (squareName(from) + squareName(to)).toUpperCase(),
+  });
+}
+
+function play(from, to) {
+  const mover = pos.turn;
+  const text = notationFor(from, to);
+  const u = pos.make((from << 8) | to);
+  history.push({ from, to, u, text });
+  plies.push(text);
+  selected = null;
+  targets = [];
+  lastMove = { from, to };
+  render();
+  renderMoves();
+  renderStatus();
+  updateEval();
+
+  // If Red just played, let the black bot reply automatically
+  if (mover === RED && pos.kings[BLACK] >= 0 && pos.hasLegalMove()) {
+    botTurn();
+  }
+}
+
+async function botTurn() {
+  if (busy || pos.turn !== BLACK) return;
+  busy = true;
+  renderStatus();
+  const started = performance.now();
+  await sleep(120);
+
+  const depth = parseInt(selectAiDepth.value, 10) || 4;
+  const timeMs = parseInt(selectAiTime.value, 10) || 500;
+  const res = chooseMove(pos, { maxDepth: depth, timeMs, noise: 0 });
+
+  const dwell = Math.max(0, 240 - (performance.now() - started));
+  if (dwell) await sleep(dwell);
+
+  if (res.move) {
+    const from = res.move >> 8;
+    const to = res.move & 255;
+    const text = notationFor(from, to);
+    const u = pos.make(res.move);
+    history.push({ from, to, u, text });
+    plies.push(text);
+    lastMove = { from, to };
+    aiInfoEl.textContent = `深度 ${res.depth} · ${(res.nodes / 1000).toFixed(1)}k 节点 · ${res.timeMs}ms`;
+  } else {
+    aiInfoEl.textContent = '无合法着法';
+  }
+
+  busy = false;
+  render();
+  renderMoves();
+  renderStatus();
+  updateEval();
+}
+
+function addPiece(sq, side, type) {
+  const code = codeOf(side, type);
+  if (type === K) {
+    for (let i = 0; i < 90; i++) {
+      const c = pos.board[i];
+      if (c && typeOfCode(c) === K && sideOfCode(c) === side) {
+        pos.board[i] = EMPTY;
+      }
+    }
+  }
+  pos.board[sq] = code;
+  resyncKings();
+  selected = null;
+  targets = [];
+  render();
+  updateEval();
+  toast(`已在 ${squareName(sq)} 放置 ${side === RED ? '红' : '黑'}${TYPE_LETTER[type].toUpperCase()}`);
+}
+
+function removePiece(sq) {
+  if (!pos.board[sq]) return;
+  pos.board[sq] = EMPTY;
+  resyncKings();
+  selected = null;
+  targets = [];
+  render();
+  updateEval();
+  toast(`已清除 ${squareName(sq)}`);
+}
+
+function movePiece(from, to) {
+  if (from === to || !pos.board[from]) return;
+  pos.board[to] = pos.board[from];
+  pos.board[from] = EMPTY;
+  resyncKings();
+  selected = null;
+  targets = [];
+  render();
+  updateEval();
+  toast(`已将棋子移至 ${squareName(to)}`);
+}
+
+/* ----------------------------------------------------------- square clicks */
+
+function onSquare(sq) {
+  if (busy) return;
+
+  if (currentTool === 'add') {
+    addPiece(sq, activeSide, activePieceType);
+    return;
+  }
+  if (currentTool === 'remove') {
+    removePiece(sq);
+    return;
+  }
+  if (currentTool === 'move') {
+    if (moveSource === null) {
+      if (pos.board[sq]) {
+        moveSource = sq;
+        renderMarks();
+      }
+    } else {
+      movePiece(moveSource, sq);
+      moveSource = null;
+      renderMarks();
+    }
+    return;
+  }
+
+  // normal play tool: Red clicks piece to see targets, then clicks target to play
+  if (pos.turn === RED) {
+    if (selected !== null && targets.includes(sq)) {
+      play(selected, sq);
+      return;
+    }
+    const c = pos.board[sq];
+    if (c && sideOfCode(c) === RED) {
+      selected = sq;
+      targets = pos.legalMoves([])
+        .filter((m) => (m >> 8) === sq)
+        .map((m) => m & 255);
+    } else {
+      selected = null;
+      targets = [];
+    }
+    render();
+  } else {
+    // If it is black's turn in sandbox, allow manually playing black too!
+    if (selected !== null && targets.includes(sq)) {
+      play(selected, sq);
+      return;
+    }
+    const c = pos.board[sq];
+    if (c && sideOfCode(c) === BLACK) {
+      selected = sq;
+      targets = pos.legalMoves([])
+        .filter((m) => (m >> 8) === sq)
+        .map((m) => m & 255);
+    } else {
+      selected = null;
+      targets = [];
+    }
+    render();
+  }
+}
+
+// Click listener on grid: reliably captures any click regardless of element layer
+gridEl.addEventListener('click', (ev) => {
+  const target = ev.target.closest('[data-square]');
+  if (!target) return;
+  onSquare(nameSquare(target.dataset.square));
+});
+
+// Right click to immediately remove piece under cursor
+gridEl.addEventListener('contextmenu', (ev) => {
+  ev.preventDefault();
+  const target = ev.target.closest('[data-square]');
+  if (!target) return;
+  const sq = nameSquare(target.dataset.square);
+  if (pos.board[sq]) {
+    removePiece(sq);
+  }
+});
+
+/* ------------------------------------------------------------- UI controls */
+
+const PALETTE_RED = [
+  { type: K, char: '帥' },
+  { type: R, char: '俥' },
+  { type: H, char: '傌' },
+  { type: C, char: '炮' },
+  { type: A, char: '仕' },
+  { type: E, char: '相' },
+  { type: P, char: '兵' },
+];
+const PALETTE_BLACK = [
+  { type: K, char: '將' },
+  { type: R, char: '車' },
+  { type: H, char: '馬' },
+  { type: C, char: '砲' },
+  { type: A, char: '士' },
+  { type: E, char: '象' },
+  { type: P, char: '卒' },
+];
+
+function renderPalette() {
+  dbgPaletteGrid.textContent = '';
+  const list = activeSide === RED ? PALETTE_RED : PALETTE_BLACK;
+  list.forEach((p) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `palette-btn ${activeSide === RED ? 'red' : 'black'}`;
+    if (activePieceType === p.type) btn.classList.add('active');
+    btn.textContent = p.char;
+    btn.addEventListener('click', () => {
+      activePieceType = p.type;
+      renderPalette();
+    });
+    dbgPaletteGrid.appendChild(btn);
+  });
+}
+
+const TIER_DEFS = {
+  p: [
+    { label: 'T0 标准', tier: 0, branch: 'A' },
+    { label: '甲T1 冲两格', tier: 1, branch: 'A' },
+    { label: '甲T2 横行', tier: 2, branch: 'A' },
+    { label: '甲T3 王步(八方)', tier: 3, branch: 'A' },
+    { label: '乙T1 横行疾步', tier: 1, branch: 'B' },
+    { label: '乙T2 金戈斜刺', tier: 2, branch: 'B' },
+    { label: '乙T3 神兵破阵', tier: 3, branch: 'B' },
+  ],
+  c: [
+    { label: 'T0 标准', tier: 0, branch: 'A' },
+    { label: '甲T1 隔二子', tier: 1, branch: 'A' },
+    { label: '甲T2 隔三子', tier: 2, branch: 'A' },
+    { label: '甲T3 贯通炮', tier: 3, branch: 'A' },
+    { label: '乙T1 近身免架', tier: 1, branch: 'B' },
+    { label: '乙T2 翻山游击', tier: 2, branch: 'B' },
+    { label: '乙T3 自充炮台', tier: 3, branch: 'B' },
+  ],
+  n: [
+    { label: 'T0 标准', tier: 0, branch: 'A' },
+    { label: '甲T1 不蹩腿', tier: 1, branch: 'A' },
+    { label: '甲T2 走目', tier: 2, branch: 'A' },
+    { label: '甲T3 天马(走田)', tier: 3, branch: 'A' },
+    { label: '乙T1 斜步', tier: 1, branch: 'B' },
+    { label: '乙T2 近身刺', tier: 2, branch: 'B' },
+    { label: '乙T3 连环步', tier: 3, branch: 'B' },
+  ],
+  r: [
+    { label: 'T0 标准', tier: 0, branch: 'A' },
+    { label: '甲T1 斜一步', tier: 1, branch: 'A' },
+    { label: '甲T2 斜两格', tier: 2, branch: 'A' },
+    { label: '甲T3 神后(斜滑行)', tier: 3, branch: 'A' },
+    { label: '乙T1 贯石(跃友军)', tier: 1, branch: 'B' },
+    { label: '乙T2 隔子冲杀', tier: 2, branch: 'B' },
+    { label: '乙T3 雷霆万钧', tier: 3, branch: 'B' },
+  ],
+  a: [
+    { label: 'T0 标准', tier: 0, branch: 'A' },
+    { label: 'T1 斜两格', tier: 1, branch: 'A' },
+    { label: 'T2 出宫', tier: 2, branch: 'A' },
+  ],
+  b: [
+    { label: 'T0 标准', tier: 0, branch: 'A' },
+    { label: 'T1 不塞眼', tier: 1, branch: 'A' },
+    { label: 'T2 过河', tier: 2, branch: 'A' },
+  ],
+};
+
+function buildTiersUI(container, side) {
+  container.textContent = '';
+  for (const [type, options] of Object.entries(TIER_DEFS)) {
+    const wrap = document.createElement('div');
+    wrap.className = 'tier-row';
+    const label = document.createElement('span');
+    label.textContent = PIECE_CN[type] || type;
+    const select = document.createElement('select');
+    select.dataset.side = side;
+    select.dataset.pieceType = type;
+    options.forEach((opt, idx) => {
+      const elOpt = document.createElement('option');
+      elOpt.value = idx;
+      elOpt.textContent = opt.label;
+      select.appendChild(elOpt);
+    });
+    select.addEventListener('change', () => {
+      const opt = options[select.selectedIndex];
+      const idx = letterIndex(type);
+      if (idx) {
+        pos.tier[side][idx] = opt.tier;
+        pos.branch[side][idx] = opt.branch;
+      }
+      updateEval();
+      if (selected !== null) {
+        targets = pos.legalMoves([]).filter((m) => (m >> 8) === selected).map((m) => m & 255);
+        renderMarks();
+      }
+      toast(`${side === RED ? '红' : '黑'}${PIECE_CN[type]} 走法已设为 ${opt.label}`);
+    });
+    wrap.append(label, select);
+    container.appendChild(wrap);
+  }
+}
+
+function syncTiersUI() {
+  document.querySelectorAll('.tier-row select').forEach((sel) => {
+    const side = parseInt(sel.dataset.side, 10);
+    const type = sel.dataset.pieceType;
+    const idx = letterIndex(type);
+    if (!idx) return;
+    const curTier = pos.tier[side][idx] || 0;
+    const curBranch = pos.branch?.[side]?.[idx] || 'A';
+    const options = TIER_DEFS[type] || [];
+    const matchIdx = options.findIndex((o) => o.tier === curTier && o.branch === curBranch);
+    sel.selectedIndex = matchIdx >= 0 ? matchIdx : 0;
+  });
+}
+
+function initToolSwitcher() {
+  const toolBtns = dbgToolGrid.querySelectorAll('.dbg-tool-btn');
+  toolBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      toolBtns.forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentTool = btn.dataset.tool;
+      moveSource = null;
+      selected = null;
+      targets = [];
+      renderMarks();
+
+      const tips = {
+        normal: '走子对战：点红子走棋，黑方机器人自动正常应招！',
+        add: '自由加子：在下方选择棋子，点击棋盘任意格子直接放置。',
+        remove: '减子橡皮：点击棋盘上任意棋子清空该格。',
+        move: '自由移子：第一步选棋子，第二步点目标格直接挪动。',
+      };
+      currentToolTip.textContent = btn.textContent;
+      toast(tips[currentTool] || '');
+    });
+  });
+
+  dbgTabRed.addEventListener('click', () => {
+    activeSide = RED;
+    dbgTabRed.className = 'dbg-tab active red';
+    dbgTabBlack.className = 'dbg-tab';
+    renderPalette();
+  });
+
+  dbgTabBlack.addEventListener('click', () => {
+    activeSide = BLACK;
+    dbgTabRed.className = 'dbg-tab';
+    dbgTabBlack.className = 'dbg-tab active';
+    renderPalette();
+  });
+}
+
+function initButtons() {
+  btnBotMoveNow.addEventListener('click', () => {
+    pos.turn = BLACK;
+    renderStatus();
+    botTurn();
+  });
+
+  btnFlipTurn.addEventListener('click', () => {
+    pos.turn ^= 1;
+    renderStatus();
+    updateEval();
+    toast(`已切换走子方：${pos.turn === RED ? '红方' : '黑方'}`);
+  });
+
+  btnStandardXiangqi.addEventListener('click', () => {
+    pos = new Position(START_FEN);
+    history = [];
+    plies = [];
+    lastMove = null;
+    selected = null;
+    targets = [];
+    render();
+    renderMoves();
+    renderStatus();
+    updateEval();
+    toast('已重置为标准象棋完整开局');
+  });
+
+  btnClearBoard.addEventListener('click', () => {
+    for (let sq = 0; sq < 90; sq++) {
+      const c = pos.board[sq];
+      if (c && typeOfCode(c) !== K) pos.board[sq] = EMPTY;
+    }
+    resyncKings();
+    selected = null;
+    targets = [];
+    render();
+    updateEval();
+    toast('已清空盘面（保留将帅）');
+  });
+
+  btnMaxTiers.addEventListener('click', () => {
+    for (const [type, opts] of Object.entries(TIER_DEFS)) {
+      const idx = letterIndex(type);
+      if (idx) pos.tier[RED][idx] = opts.length - 1;
+    }
+    syncTiersUI();
+    updateEval();
+    toast('红方所有兵种已升级至最高档！');
+  });
+
+  btnApplyFen.addEventListener('click', () => {
+    const str = fenInput.value.trim();
+    if (!str) return;
+    try {
+      pos.load(str);
+      resyncKings();
+      selected = null;
+      targets = [];
+      render();
+      renderStatus();
+      updateEval();
+      toast('FEN 局面已成功载入');
+    } catch (err) {
+      toast(`FEN 格式错误：${err.message}`);
+    }
+  });
+
+  btnCopyFen.addEventListener('click', () => {
+    const fen = pos.fen();
+    navigator.clipboard.writeText(fen).then(() => {
+      toast('FEN 已复制到剪贴板');
+    }).catch(() => {
+      fenInput.select();
+      toast('请手动复制输入框中的 FEN');
+    });
+  });
+
+  LEVELS.forEach((lv, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `第 ${i + 1} 关：${lv.name}${lv.isBoss ? '【首领】' : ''}`;
+    selectPresetLevel.appendChild(opt);
+  });
+
+  btnLoadPreset.addEventListener('click', () => {
+    const idx = parseInt(selectPresetLevel.value, 10);
+    const lv = LEVELS[idx];
+    const run = createRun();
+    pos = positionFor(run, lv);
+    history = [];
+    plies = [];
+    lastMove = null;
+    selected = null;
+    targets = [];
+    syncTiersUI();
+    render();
+    renderMoves();
+    renderStatus();
+    updateEval();
+    toast(`已载入第 ${idx + 1} 关【${lv.name}】阵型`);
+  });
+}
+
+/* ------------------------------------------------------------- startup */
+
+buildCells();
+buildCoords();
+buildTiersUI(redTiersContainer, RED);
+buildTiersUI(blackTiersContainer, BLACK);
+renderPalette();
+initToolSwitcher();
+initButtons();
+
+render();
+renderStatus();
+updateEval();
