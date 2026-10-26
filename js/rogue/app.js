@@ -4,7 +4,7 @@
 
 import {
   RED, BLACK, EMPTY, K, A, E, H, R, C, P,
-  TYPE_LETTER, typeOfCode, sideOfCode, codeOf,
+  TYPE_LETTER, LETTER_TYPE, typeOfCode, sideOfCode, codeOf,
   squareName, nameSquare, fileOf, rankOf,
 } from './xiangqi.js';
 import { chooseMove, evaluate } from './ai.js';
@@ -12,8 +12,9 @@ import { LEVELS } from './levels.js';
 import {
   createRun, positionFor, dropFromRoster, addToRoster, attackersLeft,
   itemCount, takeItem, serializeRun, deserializeRun, letterIndex,
+  addOrReserve, autoDeployFromReserves, getStageReinforcements, countOfReserve, HOME,
 } from './run.js';
-import { drawRewards, applyReward, describeBuild, describeArmy, PIECE_CN } from './rewards.js';
+import { drawRewards, applyReward, describeBuild, describeArmy, PIECE_CN, RELICS } from './rewards.js';
 import { buildShop, buy } from './shop.js';
 import { chineseNotation } from '../notation.js';
 
@@ -40,6 +41,8 @@ const armorEl = el('armor');
 const armyEl = el('army');
 const goldEl = el('gold');
 const itemsEl = el('items');
+const reservesEl = el('reserves');
+const relicsEl = el('relics');
 const buildEl = el('build');
 const btnSave = el('btnSave');
 const btnLoad = el('btnLoad');
@@ -65,6 +68,10 @@ let finished = false;
 let busy = false;
 let stageKills = 0;
 let bonusMover = null;
+let deployingReserveType = null;
+let redBonusTurns = 0;
+let soulRetrievedThisStage = false;
+let cicadaShellUsedThisStage = false;
 // bumps whenever the board is replaced underneath an in-flight bot reply
 let epoch = 0;
 // repetition bookkeeping: position key -> how often seen, and when it last was
@@ -147,6 +154,19 @@ function renderMarks() {
     mark.style.top = `${pctY(sq)}%`;
     marksLayer.appendChild(mark);
   }
+  if (deployingReserveType) {
+    const homeSqs = HOME[deployingReserveType] ?? [];
+    for (const sq of homeSqs) {
+      if (pos.board[sq] === EMPTY) {
+        const mark = document.createElement('div');
+        mark.className = 'mark deploy';
+        mark.style.left = `${pctX(sq)}%`;
+        mark.style.top = `${pctY(sq)}%`;
+        mark.title = `点击部署备用${PIECE_CN[deployingReserveType]}`;
+        marksLayer.appendChild(mark);
+      }
+    }
+  }
 }
 
 function renderMoves() {
@@ -193,6 +213,53 @@ function updateHud() {
   btnRetry.disabled = retries === 0;
   btnUndo.textContent = `悔棋符 ×${undos}`;
   btnUndo.disabled = undos === 0;
+
+  // Reserves
+  reservesEl.textContent = '';
+  let hasReserves = false;
+  for (const type of ['p', 'n', 'c', 'r', 'a', 'b']) {
+    const count = countOfReserve(run, type);
+    if (count > 0) {
+      hasReserves = true;
+      const btn = document.createElement('button');
+      btn.className = `reserve-btn${deployingReserveType === type ? ' active' : ''}`;
+      btn.textContent = `${PIECE_CN[type]} ×${count}`;
+      btn.title = `点击后可部署到己方初始${PIECE_CN[type]}位置（空位）`;
+      btn.disabled = busy || finished || pos?.turn !== RED;
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (deployingReserveType === type) {
+          deployingReserveType = null;
+        } else {
+          deployingReserveType = type;
+          selected = null;
+          targets = [];
+        }
+        render();
+        updateHud();
+      };
+      reservesEl.appendChild(btn);
+    }
+  }
+  if (!hasReserves) {
+    reservesEl.textContent = '暂无备用子力';
+  }
+
+  // Relics
+  relicsEl.textContent = '';
+  const activeRelics = Object.keys(run.relics ?? {}).filter((k) => run.relics[k]);
+  if (!activeRelics.length) {
+    relicsEl.textContent = '无';
+  } else {
+    for (const id of activeRelics) {
+      const tag = document.createElement('span');
+      tag.className = 'hud-relic-tag';
+      tag.textContent = RELICS[id]?.name ?? id;
+      tag.title = RELICS[id]?.desc ?? '';
+      relicsEl.appendChild(tag);
+    }
+  }
+
   const summary = describeBuild(run);
   buildEl.textContent = summary || '还没有强化';
   buildEl.classList.toggle('muted', !summary);
@@ -223,12 +290,21 @@ function startLevel(index, opts = {}) {
   run.level = index;
   level = LEVELS[index];
   epoch++;
+
+  // Auto deploy from reserves before checking roster
+  autoDeployFromReserves(run);
+
   if (rewind && run.snapshot) {
     run.roster = run.snapshot.slice();
   } else {
     if (!run.granted.has(index)) {
       run.granted.add(index);
       for (const type of level.refill ?? []) addToRoster(run, type);
+      // Auto-reinforcements by stage
+      const reinforcements = getStageReinforcements(index);
+      for (const type of reinforcements) {
+        addOrReserve(run, type);
+      }
     }
     run.snapshot = run.roster.slice();
   }
@@ -242,6 +318,10 @@ function startLevel(index, opts = {}) {
   busy = false;
   stageKills = 0;
   bonusMover = null;
+  deployingReserveType = null;
+  redBonusTurns = 0;
+  soulRetrievedThisStage = false;
+  cicadaShellUsedThisStage = false;
   statusEl.className = 'status';
   statusEl.textContent = '红方走棋';
   resetRepetition();
@@ -325,11 +405,29 @@ function repetitionVerdict(cycleStart) {
 function noteCapture(u) {
   if (!u.cap) return;
   const side = sideOfCode(u.cap);
+  const typeLetter = TYPE_LETTER[typeOfCode(u.cap)];
   if (side === RED) {
-    dropFromRoster(run, TYPE_LETTER[typeOfCode(u.cap)]);
+    dropFromRoster(run, typeLetter);
     updateHud();
+    // 《弃子争先》: 红方车、马、炮被黑方吃掉时，红方立刻获得额外 1 次连续行动回合（连走两步）！
+    if (run.relics?.sacrifice && ['r', 'n', 'c'].includes(typeLetter)) {
+      redBonusTurns += 1;
+      toast('《弃子争先》触发！红方获得额外 1 次连续行动机会！');
+    }
   } else if (side === BLACK && typeOfCode(u.cap) !== K) {
     stageKills += 1;
+    // 《借尸还魂》: 每关限 1 次：当我方吃掉黑方车/马/炮时，将其化为己用，立即加入我方备库！
+    if (run.relics?.soul_retrieval && !soulRetrievedThisStage && ['r', 'n', 'c'].includes(typeLetter)) {
+      soulRetrievedThisStage = true;
+      const res = addOrReserve(run, typeLetter);
+      toast(`《借尸还魂》触发！俘获黑方${PIECE_CN[typeLetter]}加入${res.target === 'roster' ? '部队' : '备库'}！`);
+      updateHud();
+    }
+    // 《摸金校尉》: 战场上每吃掉一个敌子额外 +1 金币
+    if (run.relics?.gold_hunter) {
+      run.gold += 1;
+      updateHud();
+    }
     // 兵路线 B T3【神兵破阵】: 吃子额外奖励 +3 金币
     if (typeOfCode(u.moving) === P && pos.branch?.[RED]?.[P] === 'B' && pos.tier[RED][P] >= 3) {
       run.gold += 3;
@@ -384,6 +482,14 @@ function play(from, to) {
     // 2. 马路线 B T3【连环步】: 移动若未吃子，可选择待命或再斜走一步空格（不可吃子）
     if (pieceType === H && pos.branch?.[RED]?.[H] === 'B' && pos.tier[RED][H] >= 3 && !u.cap) {
       if (triggerBonusStep('n', to)) return;
+    }
+    // 《弃子争先》
+    if (redBonusTurns > 0) {
+      redBonusTurns -= 1;
+      pos.turn = RED;
+      renderStatus();
+      toast('《弃子争先》连走回合！红方请继续行动');
+      return;
     }
   }
 
@@ -469,6 +575,14 @@ function finishBonusStep(dest) {
     renderStatus();
   }
 
+  if (redBonusTurns > 0) {
+    redBonusTurns -= 1;
+    pos.turn = RED;
+    renderStatus();
+    toast('《弃子争先》连走回合！红方请继续行动');
+    return;
+  }
+
   if (!finishIfOver()) botTurn();
 }
 
@@ -535,10 +649,48 @@ async function botTurn() {
   if (!finishIfOver()) renderStatus();
 }
 
+function tryCicadaShell() {
+  if (!run.relics?.cicada_shell || cicadaShellUsedThisStage) return false;
+  const redKingSq = pos.kings[RED];
+  const candidates = [];
+  for (let sq = 0; sq < 90; sq++) {
+    const c = pos.board[sq];
+    if (c && sideOfCode(c) === RED) {
+      const t = typeOfCode(c);
+      if (t === P || t === A) {
+        const dist = redKingSq >= 0
+          ? Math.abs(fileOf(sq) - fileOf(redKingSq)) + Math.abs(rankOf(sq) - rankOf(redKingSq))
+          : 0;
+        candidates.push({ sq, dist, type: t });
+      }
+    }
+  }
+  if (!candidates.length) return false;
+  candidates.sort((a, b) => a.dist - b.dist);
+  const target = candidates[0];
+
+  if (redKingSq < 0) {
+    dropFromRoster(run, TYPE_LETTER[target.type]);
+    pos.board[target.sq] = codeOf(RED, K);
+    pos.kings[RED] = target.sq;
+  } else {
+    const kingCode = pos.board[redKingSq];
+    pos.board[redKingSq] = pos.board[target.sq];
+    pos.board[target.sq] = kingCode;
+    pos.kings[RED] = target.sq;
+  }
+  cicadaShellUsedThisStage = true;
+  toast('《金蝉脱壳》触发！帅与部下移形换位脱险！');
+  render();
+  updateHud();
+  return true;
+}
+
 function finishIfOver() {
   // A king that is no longer on the board means some legality check missed a
   // capture; end the game rather than let the loser play on without a king.
   if (pos.kings[RED] < 0) {
+    if (tryCicadaShell()) return false;
     lose('红方主帅被吃');
     return true;
   }
@@ -569,6 +721,7 @@ function finishIfOver() {
     if (pos.turn === BLACK) {
       win();
     } else {
+      if (tryCicadaShell()) return false;
       lose(pos.inCheck(RED) ? '红方被将死' : '红方被困毙');
     }
     return true;
@@ -591,8 +744,12 @@ function awardGold() {
   const base = level.gold ?? 10;
   const speedBonus = spare * 2;
   const hasBounty = !!level.bounty;
-  const killBonus = hasBounty ? stageKills * 2 : 0;
-  const wipeoutBonus = (hasBounty && blackPiecesLeft() === 0) ? 10 : 0;
+  let killBonus = hasBounty ? stageKills * 2 : 0;
+  let wipeoutBonus = (hasBounty && blackPiecesLeft() === 0) ? 10 : 0;
+  if (run.relics?.gold_hunter) {
+    killBonus = Math.round(killBonus * 1.5);
+    wipeoutBonus = Math.round(wipeoutBonus * 1.5);
+  }
   const gained = base + speedBonus + killBonus + wipeoutBonus;
   run.gold += gained;
   return { gained, base, spare, speedBonus, stageKills, killBonus, wipeoutBonus, hasBounty };
@@ -829,15 +986,22 @@ function undoStep() {
   epoch++;
   finished = false;
   bonusMover = null;
+  deployingReserveType = null;
   statusEl.className = 'status';
   do {
     const h = history.pop();
-    pos.unmake(h.u);
-    plies.pop();
-    // undoing a capture puts the piece back on the board and back in the army
-    if (h.u.cap && sideOfCode(h.u.cap) === RED) {
-      addToRoster(run, TYPE_LETTER[typeOfCode(h.u.cap)]);
+    if (h.isDeploy) {
+      pos.board[h.to] = EMPTY;
+      run.reserves[h.type] = (run.reserves[h.type] ?? 0) + 1;
+      dropFromRoster(run, h.type);
+    } else {
+      pos.unmake(h.u);
+      // undoing a capture puts the piece back on the board and back in the army
+      if (h.u.cap && sideOfCode(h.u.cap) === RED) {
+        addToRoster(run, TYPE_LETTER[typeOfCode(h.u.cap)]);
+      }
     }
+    plies.pop();
   } while (history.length && pos.turn !== RED);
   const prev = history[history.length - 1];
   lastMove = prev ? { from: prev.from, to: prev.to } : null;
@@ -882,6 +1046,47 @@ function onSquare(sq) {
     // 点击其他无效位置直接结束追加回合
     finishBonusStep(null);
     return;
+  }
+
+  // Handle deployment from reserve
+  if (deployingReserveType) {
+    const homeSqs = HOME[deployingReserveType] ?? [];
+    if (homeSqs.includes(sq) && pos.board[sq] === EMPTY) {
+      const type = deployingReserveType;
+      const code = codeOf(RED, LETTER_TYPE[type]);
+      pos.board[sq] = code;
+      run.reserves[type] -= 1;
+      run.roster.push(type);
+      const pieceName = PIECE_CN[type];
+      const text = `部署·${pieceName}(${squareName(sq).toUpperCase()})`;
+      history.push({ from: sq, to: sq, u: { cap: 0, moving: code }, text, isDeploy: true, type });
+      plies.push(text);
+      notePosition(RED);
+      lastMove = { from: sq, to: sq };
+      deployingReserveType = null;
+      selected = null;
+      targets = [];
+      updateHud();
+      render();
+      renderMoves();
+      renderStatus();
+      updateEval();
+      toast(`从备库部署了 1 个${pieceName}！`);
+      if (finishIfOver()) return;
+
+      if (redBonusTurns > 0) {
+        redBonusTurns -= 1;
+        pos.turn = RED;
+        renderStatus();
+        toast('《弃子争先》连走回合！红方请继续行动');
+        return;
+      }
+      botTurn();
+      return;
+    }
+    deployingReserveType = null;
+    render();
+    updateHud();
   }
 
   if (pos.turn !== RED) return;

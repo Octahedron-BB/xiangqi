@@ -14,11 +14,12 @@ import { Position, nameSquare } from './xiangqi.js';
 export const STARTING_ARMOR = 1;
 
 export const MAX_COUNT = { k: 1, a: 2, b: 2, n: 2, r: 2, c: 2, p: 5 };
+export const MAX_RESERVE = { k: 0, a: 2, b: 2, n: 2, r: 1, c: 2, p: 5 };
 
 // Where a piece lives when the stage does not script otherwise. Every type has
 // its standard opening squares, so a roster of any composition drops in without
 // collisions.
-const HOME = {
+export const HOME = {
   k: ['e0'],
   r: ['a0', 'i0'],
   n: ['b0', 'h0'],
@@ -41,6 +42,8 @@ export function createRun() {
     roster: ['k', 'r', 'p', 'p'],
     tiers: { a: 0, b: 0, n: 0, r: 0, c: 0, p: 0 },
     branches: { p: null, n: null, c: null, r: null },
+    reserves: { a: 0, b: 0, n: 0, r: 0, c: 0, p: 0 },
+    relics: {},
     passives: {},
     armor: STARTING_ARMOR,
     extraBlackPawns: 0,
@@ -94,6 +97,8 @@ export function serializeRun(run) {
     roster: (run.snapshot ?? run.roster).slice(),
     tiers: { ...run.tiers },
     branches: { ...run.branches },
+    reserves: { ...(run.reserves ?? {}) },
+    relics: { ...(run.relics ?? {}) },
     passives: { ...run.passives },
     armor: run.armor,
     gold: run.gold,
@@ -114,6 +119,8 @@ export function deserializeRun(data) {
   run.roster = Array.isArray(data.roster) && data.roster.length ? data.roster.slice() : run.roster;
   run.tiers = { ...run.tiers, ...(data.tiers ?? {}) };
   run.branches = { p: null, n: null, c: null, r: null, ...(data.branches ?? {}) };
+  run.reserves = { a: 0, b: 0, n: 0, r: 0, c: 0, p: 0, ...(data.reserves ?? {}) };
+  run.relics = { ...(data.relics ?? {}) };
   run.passives = { ...(data.passives ?? {}) };
   run.armor = data.armor | 0;
   run.gold = data.gold | 0;
@@ -134,12 +141,61 @@ export function countOf(run, type) {
   return n;
 }
 
+export function countOfReserve(run, type) {
+  return run.reserves?.[type] ?? 0;
+}
+
+/**
+ * Adds one piece to the active roster if under MAX_COUNT.
+ * If active roster is full, stores in reserves up to MAX_RESERVE.
+ * If both are full, converts to gold refund.
+ */
+export function addOrReserve(run, type) {
+  if (countOf(run, type) < MAX_COUNT[type]) {
+    run.roster.push(type);
+    return { target: 'roster' };
+  }
+  run.reserves ??= { a: 0, b: 0, n: 0, r: 0, c: 0, p: 0 };
+  const cur = run.reserves[type] ?? 0;
+  const maxRes = MAX_RESERVE[type] ?? 2;
+  if (cur < maxRes) {
+    run.reserves[type] = cur + 1;
+    return { target: 'reserves' };
+  }
+  const REFUND = { p: 5, a: 8, b: 8, n: 12, c: 12, r: 20 };
+  const gold = REFUND[type] ?? 5;
+  run.gold += gold;
+  return { target: 'gold', gold };
+}
+
+/** Automatically fills empty roster spots from reserves at stage entry. */
+export function autoDeployFromReserves(run) {
+  run.reserves ??= { a: 0, b: 0, n: 0, r: 0, c: 0, p: 0 };
+  for (const type of ['p', 'n', 'c', 'r', 'a', 'b']) {
+    while (countOf(run, type) < MAX_COUNT[type] && (run.reserves[type] ?? 0) > 0) {
+      run.reserves[type] -= 1;
+      run.roster.push(type);
+    }
+  }
+}
+
+/**
+ * Standard auto-reinforcements by stage:
+ * Every stage: +1 pawn (兵)
+ * Every 3 stages: +1 horse (马) [stages 3, 6, 9, 12, 15, 18]
+ * Every 5 stages: +1 cannon (炮) [stages 5, 10, 15, 20]
+ */
+export function getStageReinforcements(stageIdx) {
+  const gains = ['p'];
+  const stageNum = stageIdx + 1;
+  if (stageNum % 3 === 0) gains.push('n');
+  if (stageNum % 5 === 0) gains.push('c');
+  return gains;
+}
+
 /** Adds one piece if the roster still has room for that type. */
 export function addToRoster(run, type) {
-  if (!HOME[type]) return false;
-  if (countOf(run, type) >= MAX_COUNT[type]) return false;
-  run.roster.push(type);
-  return true;
+  return addOrReserve(run, type).target !== 'gold';
 }
 
 /** Removes one piece of that type. The king never leaves the roster. */
@@ -256,6 +312,7 @@ export function buildFen(run, level) {
 export function positionFor(run, level) {
   const { fen } = buildFen(run, level);
   const pos = new Position(fen);
+  pos.relics = { ...(run.relics ?? {}) };
   for (const [type, tier] of Object.entries(run.tiers)) {
     const idx = letterIndex(type);
     if (idx && tier) {

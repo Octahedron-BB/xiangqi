@@ -1,10 +1,19 @@
 {
-  "name": "xiangqi-local",
+  "name": "xiangqi-master",
   "version": "1.0.0",
-  "private": true,
-  "description": "Local Chinese chess game reusing play.xiangqi.com board assets, rules engine and Pikafish bot. Personal use only.",
+  "description": "A modern, standalone Chinese Chess (Xiangqi) web game featuring classic AI matches, a 20-level Roguelike campaign with dual-branch piece upgrades and tactical relics, and an interactive sandbox.",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
-  }
+    "start": "node server.js",
+    "test": "node tools/validate-levels.mjs && node tools/audit-rogue.mjs"
+  },
+  "keywords": [
+    "xiangqi",
+    "chinese-chess",
+    "roguelike",
+    "board-game",
+    "chess-engine"
+  ],
+  "author": "Octahedron-BB",
+  "license": "MIT"
 }

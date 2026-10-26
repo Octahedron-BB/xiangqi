@@ -1,9 +1,8 @@
 // Roguelike xiangqi core: board, tier-aware move generation, make/unmake and
 // check detection.
 //
-// Deliberately independent from js/rules.js — that one is the untouched
-// standard-rules engine behind the classic mode and has to keep behaving
-// exactly like play.xiangqi.com. This one is allowed to grow extra abilities.
+// Deliberately independent from js/rules.js — that one is the standard-rules
+// engine behind the classic mode. This one is extended to support rogue abilities.
 //
 // Board: Uint8Array(90), index = rank * 9 + file, rank 0 = red home row.
 // Piece code: 0 = empty, red = 1..7, black = 9..15 (same type ids, +8).
@@ -23,7 +22,7 @@ export const P = 7; // pawn / soldier
 export const SIZE = 90;
 // classic FEN letters (the same ones js/rules.js and the site use): b = elephant, n = horse
 export const TYPE_LETTER = ['', 'k', 'a', 'b', 'n', 'r', 'c', 'p'];
-const LETTER_TYPE = { k: K, a: A, b: E, e: E, n: H, h: H, r: R, c: C, p: P };
+export const LETTER_TYPE = { k: K, a: A, b: E, e: E, n: H, h: H, r: R, c: C, p: P };
 
 export const sqOf = (file, rank) => rank * 9 + file;
 export const fileOf = (sq) => sq % 9;
@@ -66,6 +65,8 @@ export class Position {
     this.tier = [new Uint8Array(8), new Uint8Array(8)];
     // branch[side][type]: 'A' or 'B'
     this.branch = [{}, {}];
+    this.relics = {};
+    this.plyCount = 0;
     this.kings = [-1, -1];
     if (fen) this.load(fen);
   }
@@ -155,6 +156,8 @@ export class Position {
     next.tier[RED].set(this.tier[RED]);
     next.tier[BLACK].set(this.tier[BLACK]);
     next.branch = [{ ...this.branch[0] }, { ...this.branch[1] }];
+    next.relics = { ...this.relics };
+    next.plyCount = this.plyCount;
     next.kings = [this.kings[0], this.kings[1]];
     return next;
   }
@@ -174,12 +177,14 @@ export class Position {
     // tracking it keeps the game from silently continuing with a phantom king.
     if (cap && (cap & 7) === K) this.kings[cap > 8 ? BLACK : RED] = -1;
     this.turn ^= 1;
+    this.plyCount++;
     return { from, to, cap, moving };
   }
 
   unmake(u) {
     const b = this.board;
     this.turn ^= 1;
+    this.plyCount--;
     b[u.from] = u.moving;
     b[u.to] = u.cap;
     if ((u.moving & 7) === K) this.kings[u.moving > 8 ? BLACK : RED] = u.from;
@@ -221,7 +226,57 @@ export class Position {
   #push(out, from, to, side) {
     const t = this.board[to];
     if (t && (t > 8 ? BLACK : RED) === side) return;
+    // 《连环铁锁》: 敌方兵卒不能吃我方处于互保状态的棋子
+    if (t && side === BLACK && (this.board[from] & 7) === P && this.relics?.iron_chains) {
+      if (this.isProtected(to, RED)) return;
+    }
     out.push((from << 8) | to);
+  }
+
+  isProtected(sq, side) {
+    const saved = this.turn;
+    this.turn = side;
+    const pseudo = [];
+    const b = this.board;
+    for (let from = 0; from < SIZE; from++) {
+      const c = b[from];
+      if (!c || (c > 8 ? BLACK : RED) !== side) continue;
+      const f = fileOf(from);
+      const r = rankOf(from);
+      const br = this.branch[side];
+      const tier = this.tier[side];
+      switch (c & 7) {
+        case K: this.#genKing(from, f, r, side, pseudo); break;
+        case A: this.#genAdvisor(from, f, r, side, tier[A], pseudo); break;
+        case E: this.#genElephant(from, f, r, side, tier[E], pseudo); break;
+        case H: this.#genHorse(from, f, r, side, tier[H], br[H] || 'A', pseudo); break;
+        case R: this.#genRook(from, f, r, side, tier[R], br[R] || 'A', pseudo); break;
+        case C: this.#genCannon(from, f, r, side, tier[C], br[C] || 'A', pseudo); break;
+        case P: this.#genPawn(from, f, r, side, tier[P], br[P] || 'A', pseudo); break;
+        default: break;
+      }
+      if (pseudo.some((m) => (m & 255) === sq)) {
+        this.turn = saved;
+        return true;
+      }
+      pseudo.length = 0;
+    }
+    this.turn = saved;
+    return false;
+  }
+
+  hasLastStand(side) {
+    if (side !== RED || !this.relics?.last_stand) return false;
+    let count = 0;
+    const b = this.board;
+    for (let i = 0; i < SIZE; i++) {
+      const c = b[i];
+      if (c && (c > 8 ? BLACK : RED) === side) {
+        count++;
+        if (count > 2) return false;
+      }
+    }
+    return count <= 2;
   }
 
   #genKing(from, f, r, side, out) {
@@ -234,7 +289,9 @@ export class Position {
   }
 
   #genAdvisor(from, f, r, side, tier, out) {
-    if (tier >= 2) {
+    // 《瞒天过海》: 开局前 3 回合（6 plies）内仕可出九宫任意斜滑
+    const allowDeception = side === RED && this.relics?.deception && (this.plyCount || 0) < 6;
+    if (tier >= 2 || allowDeception) {
       for (const [df, dr] of DIAG) {
         let nf = f + df;
         let nr = r + dr;
@@ -269,18 +326,21 @@ export class Position {
   }
 
   #genElephant(from, f, r, side, tier, out) {
+    // 《瞒天过海》: 开局前 3 回合（6 plies）内相可过河
+    const allowRiver = tier >= 2 || (side === RED && this.relics?.deception && (this.plyCount || 0) < 6);
     for (const [df, dr] of DIAG) {
       const nf = f + df * 2;
       const nr = r + dr * 2;
       if (!onBoard(nf, nr)) continue;
-      if (tier < 2 && (side === RED ? nr > 4 : nr < 5)) continue; // own half only
+      if (!allowRiver && (side === RED ? nr > 4 : nr < 5)) continue; // own half only
       if (tier < 1 && this.board[sqOf(f + df, r + dr)] !== EMPTY) continue; // 塞象眼
       this.#push(out, from, sqOf(nf, nr), side);
     }
   }
 
   #genHorse(from, f, r, side, tier, branch, out) {
-    const legsCount = branch === 'A' ? tier < 1 : true;
+    const isLastStand = this.hasLastStand(side);
+    const legsCount = isLastStand ? false : (branch === 'A' ? tier < 1 : true);
     for (const [df, dr, lf, lr] of HORSE_MOVES) {
       const nf = f + df;
       const nr = r + dr;
@@ -297,7 +357,7 @@ export class Position {
           if (onBoard(nf, nr)) this.#push(out, from, sqOf(nf, nr), side);
         }
       }
-      if (tier >= 3) {
+      if (tier >= 3 || isLastStand) {
         // 天马: (±2,±2) 田字跳跃，无视塞象眼，可过河
         for (const [df, dr] of DIAG) {
           const nf = f + df * 2;
@@ -306,6 +366,14 @@ export class Position {
         }
       }
     } else {
+      if (isLastStand) {
+        // 天马: 背水一战兼备田字跳跃
+        for (const [df, dr] of DIAG) {
+          const nf = f + df * 2;
+          const nr = r + dr * 2;
+          if (onBoard(nf, nr)) this.#push(out, from, sqOf(nf, nr), side);
+        }
+      }
       // 路线 B【近战铁骑】
       if (tier >= 1) {
         // 斜步 1 格
@@ -389,10 +457,11 @@ export class Position {
   }
 
   #genCannon(from, f, r, side, tier, branch, out) {
-    if (branch === 'B') {
-      // 路线 B【神火游击】
+    const isLastStand = this.hasLastStand(side);
+    if (isLastStand || branch === 'B') {
+      // 路线 B【神火游击】或【背水一战】
       // T1 近身免架
-      if (tier >= 1) {
+      if (tier >= 1 || isLastStand) {
         for (const [df, dr] of ORTH) {
           const af = f + df;
           const ar = r + dr;
@@ -476,6 +545,16 @@ export class Position {
   }
 
   #genPawn(from, f, r, side, tier, branch, out) {
+    const isLastStand = this.hasLastStand(side);
+    if (isLastStand) {
+      // 背水一战: 八方任行
+      for (const [df, dr] of ALL_DIRS) {
+        const nf = f + df;
+        const nr = r + dr;
+        if (onBoard(nf, nr)) this.#push(out, from, sqOf(nf, nr), side);
+      }
+      return;
+    }
     const fwd = side === RED ? 1 : -1;
     const nf1 = r + fwd;
     if (onBoard(f, nf1)) this.#push(out, from, sqOf(f, nf1), side);
@@ -549,9 +628,25 @@ export class Position {
     return out;
   }
 
+  kingsFacing() {
+    const k0 = this.kings[RED];
+    const k1 = this.kings[BLACK];
+    if (k0 < 0 || k1 < 0) return false;
+    if (fileOf(k0) !== fileOf(k1)) return false;
+    const f = fileOf(k0);
+    const minR = Math.min(rankOf(k0), rankOf(k1));
+    const maxR = Math.max(rankOf(k0), rankOf(k1));
+    const b = this.board;
+    for (let r = minR + 1; r < maxR; r++) {
+      if (b[r * 9 + f] !== EMPTY) return false;
+    }
+    return true;
+  }
+
   inCheck(side) {
     const king = this.kings[side];
     if (king < 0) return false;
+    if (this.kingsFacing()) return true;
     return this.attacked(king, side ^ 1);
   }
 
@@ -640,7 +735,6 @@ export class Position {
           pieces++;
           if (pieces === 1) {
             if (c === rook) return true;
-            if (c === king && df === 0) return true; // 将帅照面
             // 近身炮 is point-blank only; a cannon further down the ray still
             // needs a screen, so distance matters here.
             if (c === cannon && cannonTier >= 3 && dist === 1) return true;

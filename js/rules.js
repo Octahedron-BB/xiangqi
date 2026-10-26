@@ -1,9 +1,7 @@
 // ---------------------------------------------------------------------------
-// Xiangqi rules engine, extracted verbatim from play.xiangqi.com's main bundle
-// (webpack module 759849). Same move generation, check/mate/stalemate and draw
-// detection the site uses in the browser.
-//
-// Local personal use only. Verified with perft(1)=44, perft(2)=1920.
+// Standard Xiangqi rules engine.
+// Move generation, check/mate/stalemate and draw detection.
+// Verified with perft(1)=44, perft(2)=1920.
 // ---------------------------------------------------------------------------
 const Xiangqi = (function () {
   var module = { exports: {} }, e = module, n = {}, o, exports = n, i;

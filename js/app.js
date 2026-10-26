@@ -3,19 +3,22 @@ import { Engine, DIFFICULTY, HINT_LEVEL } from './engine.js';
 import { chineseNotation } from './notation.js';
 
 const OPPONENTS = [
-  { name: 'Meow', level: 1 },
-  { name: 'Coach David', level: 2 },
-  { name: 'Huma', level: 3 },
-  { name: 'Chia', level: 4 },
-  { name: 'Paul', level: 5 },
-  { name: 'Trung', level: 6 },
-  { name: 'Dr. Png', level: 7 },
-  { name: 'ZhiXuan', level: 8 },
-  { name: 'Joep', level: 9 },
-  { name: 'Hu', level: 10 },
-  { name: 'Zen', level: 11, detail: '深度 22' },
+  { name: '弈童 · 清风', level: 1, title: '初学' },
+  { name: '棋客 · 白云', level: 2, title: '入门' },
+  { name: '居士 · 墨客', level: 3, title: '业余' },
+  { name: '秀才 · 鸣弦', level: 4, title: '好手' },
+  { name: '先锋 · 烈火', level: 5, title: '锐士' },
+  { name: '参谋 · 策海', level: 6, title: '强手' },
+  { name: '统帅 · 破阵', level: 7, title: '名将' },
+  { name: '国手 · 观澜', level: 8, title: '大师' },
+  { name: '宗师 · 问天', level: 9, title: '特大' },
+  { name: '神算 · 坐隐', level: 10, title: '天元' },
+  { name: '绝巅 · 通幽', level: 11, detail: '深度 22' },
 ];
-const AVATARS = ['meow', 'david', 'huma', 'chia', 'paul', 'trung', 'png', 'zhixhuan', 'joep', 'hu', 'zen'];
+const AVATARS = [
+  'bot-01', 'bot-02', 'bot-03', 'bot-04', 'bot-05',
+  'bot-06', 'bot-07', 'bot-08', 'bot-09', 'bot-10', 'bot-11',
+];
 
 const PIECE_FILE = { k: 'king', a: 'advisor', b: 'elephant', n: 'horse', r: 'rook', c: 'cannon', p: 'pawn' };
 
@@ -58,7 +61,7 @@ let epoch = 0;
 
 const engine = new Engine({
   onState: (state, message) => {
-    if (state === 'ready') engineStateEl.textContent = '就绪（Pikafish）';
+    if (state === 'ready') engineStateEl.textContent = '就绪（智能对弈引擎）';
     else if (message) engineStateEl.textContent = `不可用：${message}`;
     else engineStateEl.textContent = '加载中…';
   },
@@ -651,8 +654,8 @@ function restore() {
 
 for (const [index, opponent] of OPPONENTS.entries()) {
   const label = opponent.detail
-    ? `${opponent.name} · ${opponent.detail}`
-    : `${opponent.name} · 等级 ${opponent.level}`;
+    ? `${opponent.name}（${opponent.detail}）`
+    : `${opponent.name}（${opponent.title || `等级 ${opponent.level}`}）`;
   for (const select of [levelSelect, redLevelSelect, blackLevelSelect]) {
     const option = document.createElement('option');
     option.value = String(index);

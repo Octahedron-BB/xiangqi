@@ -141,6 +141,65 @@ export const PASSIVES = {
   },
 };
 
+export const RELICS = {
+  sacrifice: {
+    id: 'sacrifice',
+    name: '《弃子争先》',
+    rarity: 'rare',
+    weight: 45,
+    desc: '我方大子（车/马/炮）阵亡后，下个红方回合直接获得连续行动两次的特权！',
+  },
+  soul_retrieval: {
+    id: 'soul_retrieval',
+    name: '《借尸还魂》',
+    rarity: 'epic',
+    weight: 35,
+    desc: '每关限 1 次，击破敌方首个车、马或炮时，直接将其度化并收入我方备用区！',
+  },
+  last_stand: {
+    id: 'last_stand',
+    name: '《背水一战》',
+    rarity: 'rare',
+    weight: 45,
+    desc: '我方场上除帅外剩余主力 ≤ 3 个时，全军突破九宫与河界限制，移动机动性提升。',
+  },
+  deception: {
+    id: 'deception',
+    name: '《瞒天过海》',
+    rarity: 'common',
+    weight: 70,
+    desc: '开局前 3 回合内，我方仕可自由出九宫斜滑、相可直接跨过楚河汉界突击！',
+  },
+  cicada_shell: {
+    id: 'cicada_shell',
+    name: '《金蝉脱壳》',
+    rarity: 'epic',
+    weight: 35,
+    desc: '每关限 1 次，主帅面临必死将杀无路可退时，瞬间与最近的友方兵或仕调换位置脱险！',
+  },
+  iron_chains: {
+    id: 'iron_chains',
+    name: '《连环铁锁》',
+    rarity: 'rare',
+    weight: 50,
+    desc: '若两个红方棋子互在保护线内，敌方黑卒无法直接吃掉它们（免疫兵卒白换）。',
+  },
+  gold_hunter: {
+    id: 'gold_hunter',
+    name: '《摸金校尉》',
+    rarity: 'common',
+    weight: 70,
+    desc: '每次吃子金币 +1；若处于悬赏关卡，悬赏奖金额外提升 50%。',
+  },
+  bounty_hero: {
+    id: 'bounty_hero',
+    name: '《重赏勇夫》',
+    rarity: 'epic',
+    weight: 35,
+    desc: '补给铺进店时，必定随机赠送一件免费商品（0 金币任意拿）！',
+  },
+};
+
 export const RISK = {
   id: 'bloodprice',
   name: '血酬',
@@ -249,6 +308,19 @@ export function buildPool(run) {
       weight: meta.weight,
     });
   }
+  for (const [id, spec] of Object.entries(RELICS)) {
+    if (run.relics?.[id]) continue;
+    pool.push({
+      key: `relic:${id}`,
+      kind: 'relic',
+      id,
+      tag: '战术宝物',
+      title: spec.name,
+      desc: spec.desc,
+      rarity: spec.rarity,
+      weight: spec.weight,
+    });
+  }
   return pool;
 }
 
@@ -308,6 +380,11 @@ export function applyReward(run, choice) {
     if (spec?.gain) addToRoster(run, spec.gain);
     return;
   }
+  if (choice.kind === 'relic') {
+    run.relics ??= {};
+    run.relics[choice.id] = true;
+    return;
+  }
   if (choice.kind === 'risk') {
     run.pending += 2;
     run.extraBlackPawns += 1;
@@ -345,6 +422,9 @@ export function describeBuild(run) {
   const passives = Object.entries(run.passives)
     .filter(([, n]) => n > 0)
     .map(([id, n]) => (n > 1 ? `${PASSIVES[id].name}×${n}` : PASSIVES[id].name));
-  return parts.concat(passives).join(' · ');
+  const relics = Object.keys(run.relics ?? {})
+    .filter((id) => run.relics[id])
+    .map((id) => RELICS[id]?.name ?? id);
+  return parts.concat(passives).concat(relics).join(' · ');
 }
 

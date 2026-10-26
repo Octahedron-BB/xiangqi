@@ -1,5 +1,5 @@
-// Thin UCI wrapper around the Pikafish worker shipped with play.xiangqi.com.
-// Difficulty presets are the site's own 10-step table (skill / movetime / depth / MultiPV).
+// Thin UCI wrapper around the Pikafish chess engine worker.
+// 11-step difficulty presets (skill / movetime / depth / MultiPV).
 
 export const DIFFICULTY = [
   { skill: 0, move_time: 1, depth: 1, multi_pv: 5 },

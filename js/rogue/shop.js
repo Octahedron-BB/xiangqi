@@ -10,7 +10,7 @@
 // things — enough for a real decision, not enough for everything.
 
 import { MAX_COUNT, addToRoster, countOf } from './run.js';
-import { MAX_TIER, TIERS, PIECE_CN, PASSIVES, applyReward, RARITY_CONFIG, DEFAULT_RARITY } from './rewards.js';
+import { MAX_TIER, TIERS, PIECE_CN, PASSIVES, RELICS, applyReward, RARITY_CONFIG, DEFAULT_RARITY } from './rewards.js';
 
 const TIER_ORDER = ['p', 'c', 'n', 'r', 'a', 'b'];
 const RECRUIT_ORDER = ['p', 'a', 'b', 'n', 'c', 'r'];
@@ -121,18 +121,53 @@ export function buildShop(run) {
     price: SHOP_GOODS.retry.price,
   });
 
+  // Relics
+  for (const [id, spec] of Object.entries(RELICS)) {
+    if (run.relics?.[id]) continue;
+    const priceMap = { common: 24, rare: 36, epic: 48, legendary: 60 };
+    stock.push({
+      key: `relic:${id}`,
+      kind: 'relic',
+      id,
+      tag: '战术宝物',
+      title: spec.name,
+      desc: spec.desc,
+      rarity: spec.rarity,
+      price: priceMap[spec.rarity] ?? 36,
+    });
+  }
+
+  // 《重赏勇夫》bounty_hero logic: 1 random item is free
+  if (run.relics?.bounty_hero && stock.length > 0) {
+    if (!run._freeShopKey || !stock.some((s) => s.key === run._freeShopKey)) {
+      const candidates = stock.filter((s) => s.price > 0);
+      if (candidates.length > 0) {
+        const picked = candidates[Math.floor(Math.random() * candidates.length)];
+        run._freeShopKey = picked.key;
+      }
+    }
+    const freeItem = stock.find((s) => s.key === run._freeShopKey);
+    if (freeItem) {
+      freeItem.price = 0;
+      freeItem.tag = '勇夫特惠 · 免费';
+    }
+  }
+
   return stock;
 }
 
 /** Buys one entry. Returns true when the purchase went through. */
 export function buy(run, entry) {
   if (!entry || run.gold < entry.price) return false;
+  const isFree = (run._freeShopKey === entry.key);
   if (entry.kind === 'recruit') {
     if (!addToRoster(run, entry.type)) return false;
     run.gold -= entry.price;
+    if (isFree) run._freeShopKey = null;
     return true;
   }
   run.gold -= entry.price;
   applyReward(run, entry);
+  if (isFree) run._freeShopKey = null;
   return true;
 }
