@@ -444,29 +444,73 @@
   cursor: not-allowed;
 }
 
-.hud-relics {
+.reserve-btn.no-spot[disabled] {
+  opacity: 0.35;
+  background: #f0ebe4;
+  border-style: dashed;
+}
+
+.hud-relics,
+.hud-build {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
   font-size: 12px;
-  color: #5c3a21;
-  font-weight: 500;
   word-break: break-word;
 }
 
 .hud-relic-tag {
   display: inline-block;
-  padding: 1px 5px;
+  padding: 1px 6px;
   margin: 1px 2px;
-  border-radius: 3px;
+  border-radius: 4px;
   background: #f6ecdc;
   color: #794a15;
   border: 1px solid #dfc7a7;
   font-size: 11px;
+  font-weight: 500;
+  cursor: help;
+  transition: all 0.15s ease;
+}
+
+.hud-relic-tag:hover {
+  background: #edd8bc;
+  border-color: #794a15;
+  transform: translateY(-1px);
+}
+
+.hud-upgrade-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 1px 2px;
+  border-radius: 4px;
+  background: #fdf2e9;
+  color: #a84b2f;
+  border: 1px solid #e8c4b8;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: help;
+  transition: all 0.15s ease;
+}
+
+.hud-upgrade-tag:hover {
+  background: #fae5d3;
+  border-color: #b1624d;
+  transform: translateY(-1px);
+}
+
+@keyframes deploy-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.18); opacity: 1; }
 }
 
 .mark.deploy {
   border-radius: 50%;
-  box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.8), inset 0 0 8px rgba(39, 174, 96, 0.4);
-  background: rgba(46, 204, 113, 0.18);
+  box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.9), inset 0 0 10px rgba(39, 174, 96, 0.5);
+  background: rgba(46, 204, 113, 0.28);
   cursor: pointer;
+  animation: deploy-pulse 1.3s ease-in-out infinite;
 }
 
 /* ---------------------------------------------------------------- shop */

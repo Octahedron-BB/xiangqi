@@ -123,6 +123,44 @@
   border: 1px solid var(--line);
   border-radius: 4px;
 }
+.dbg-relics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.dbg-relic-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 7px;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+.dbg-relic-btn:hover {
+  background: #fdf5ec;
+  border-color: #dfc7a7;
+}
+.dbg-relic-btn.active {
+  background: #794a15;
+  color: #fff;
+  border-color: #5c3a21;
+  font-weight: 600;
+}
+.dbg-relic-rarity {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.06);
+}
+.dbg-relic-btn.active .dbg-relic-rarity {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
 </style>
 </head>
 <body>
@@ -204,7 +242,20 @@
       <div class="tiers-container" id="blackTiersContainer"></div>
     </div>
 
-    <!-- 5. 机器人与局面控制 -->
+    <!-- 5. 战术宝物 (Relics) -->
+    <div class="debug-section-card">
+      <div class="debug-sec-head">
+        <span>战术宝物 (Relics)</span>
+        <div style="display:flex;gap:4px">
+          <button class="dbg-sm-btn" id="btnAllRelics" type="button" style="font-size:11px">全选</button>
+          <button class="dbg-sm-btn" id="btnClearRelics" type="button" style="font-size:11px">清空</button>
+        </div>
+      </div>
+      <div class="dbg-relics-grid" id="dbgRelicsGrid"></div>
+      <div style="font-size:11px;color:var(--muted)">点击开关宝物特性。即时生效于沙盒对局与规则校验中。</div>
+    </div>
+
+    <!-- 6. 机器人与局面控制 -->
     <div class="debug-section-card">
       <div class="debug-sec-head">
         <span>机器人与走棋</span>

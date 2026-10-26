@@ -10,7 +10,7 @@ import { chooseMove, evaluate } from './ai.js';
 import { LEVELS } from './levels.js';
 import { createRun, positionFor, letterIndex } from './run.js';
 import { chineseNotation } from '../notation.js';
-import { PIECE_CN } from './rewards.js';
+import { PIECE_CN, RELICS } from './rewards.js';
 
 const PIECE_FILE = { k: 'king', a: 'advisor', b: 'elephant', n: 'horse', r: 'rook', c: 'cannon', p: 'pawn' };
 
@@ -35,6 +35,9 @@ const dbgTabBlack = el('dbgTabBlack');
 const dbgPaletteGrid = el('dbgPaletteGrid');
 const redTiersContainer = el('redTiersContainer');
 const blackTiersContainer = el('blackTiersContainer');
+const dbgRelicsGrid = el('dbgRelicsGrid');
+const btnAllRelics = el('btnAllRelics');
+const btnClearRelics = el('btnClearRelics');
 const btnBotMoveNow = el('btnBotMoveNow');
 const btnFlipTurn = el('btnFlipTurn');
 const selectAiDepth = el('selectAiDepth');
@@ -56,6 +59,8 @@ let history = [];
 let plies = [];
 let lastMove = null;
 let busy = false;
+let redBonusTurns = 0;
+const debugRelics = {};
 
 let currentTool = 'normal'; // 'normal' | 'add' | 'remove' | 'move'
 let activeSide = RED;
@@ -226,6 +231,34 @@ function notationFor(from, to) {
   });
 }
 
+function tryCicadaShell() {
+  if (!pos.relics?.cicada_shell) return false;
+  const redKingSq = pos.kings[RED];
+  const candidates = [];
+  for (let sq = 0; sq < 90; sq++) {
+    const c = pos.board[sq];
+    if (c && sideOfCode(c) === RED) {
+      const t = typeOfCode(c);
+      if (t === P || t === A) {
+        const dist = redKingSq >= 0
+          ? Math.abs(fileOf(sq) - fileOf(redKingSq)) + Math.abs(rankOf(sq) - rankOf(redKingSq))
+          : 0;
+        candidates.push({ sq, dist, code: c });
+      }
+    }
+  }
+  if (!candidates.length) return false;
+  candidates.sort((a, b) => a.dist - b.dist);
+  const target = candidates[0];
+  const kingCode = pos.board[redKingSq];
+  pos.board[redKingSq] = target.code;
+  pos.board[target.sq] = kingCode;
+  pos.kings[RED] = target.sq;
+  toast('《金蝉脱壳》触发！帅与部下移形换位脱险！');
+  render();
+  return true;
+}
+
 function play(from, to) {
   const mover = pos.turn;
   const text = notationFor(from, to);
@@ -240,9 +273,18 @@ function play(from, to) {
   renderStatus();
   updateEval();
 
-  // If Red just played, let the black bot reply automatically
-  if (mover === RED && pos.kings[BLACK] >= 0 && pos.hasLegalMove()) {
-    botTurn();
+  // If Red just played, check bonus turn or let black bot reply
+  if (mover === RED) {
+    if (redBonusTurns > 0) {
+      redBonusTurns--;
+      pos.turn = RED;
+      renderStatus();
+      toast('【连击】红方连续行动第二步！');
+      return;
+    }
+    if (pos.kings[BLACK] >= 0 && pos.hasLegalMove()) {
+      botTurn();
+    }
   }
 }
 
@@ -269,6 +311,19 @@ async function botTurn() {
     plies.push(text);
     lastMove = { from, to };
     aiInfoEl.textContent = `深度 ${res.depth} · ${(res.nodes / 1000).toFixed(1)}k 节点 · ${res.timeMs}ms`;
+
+    // 弃子争先 (sacrifice)
+    if (u.cap && sideOfCode(u.cap) === RED && pos.relics?.sacrifice) {
+      const capType = TYPE_LETTER[typeOfCode(u.cap)];
+      if (['r', 'n', 'c'].includes(capType)) {
+        redBonusTurns = 1;
+        toast('《弃子争先》触发！红方立刻获得连走两步机会！');
+      }
+    }
+    // 金蝉脱壳 (cicada_shell)
+    if (u.cap && sideOfCode(u.cap) === RED && typeOfCode(u.cap) === K) {
+      tryCicadaShell();
+    }
   } else {
     aiInfoEl.textContent = '无合法着法';
   }
@@ -594,6 +649,7 @@ function initButtons() {
 
   btnStandardXiangqi.addEventListener('click', () => {
     pos = new Position(START_FEN);
+    syncRelicsToPos();
     history = [];
     plies = [];
     lastMove = null;
@@ -634,6 +690,7 @@ function initButtons() {
     if (!str) return;
     try {
       pos.load(str);
+      syncRelicsToPos();
       resyncKings();
       selected = null;
       targets = [];
@@ -668,6 +725,7 @@ function initButtons() {
     const lv = LEVELS[idx];
     const run = createRun();
     pos = positionFor(run, lv);
+    syncRelicsToPos();
     history = [];
     plies = [];
     lastMove = null;
@@ -682,12 +740,80 @@ function initButtons() {
   });
 }
 
+function initRelicsUI() {
+  dbgRelicsGrid.textContent = '';
+  const rarityNames = { common: '普通', rare: '稀有', epic: '史诗', legendary: '传说' };
+
+  for (const [id, spec] of Object.entries(RELICS)) {
+    debugRelics[id] = false;
+    const btn = document.createElement('button');
+    btn.className = 'dbg-relic-btn';
+    btn.dataset.relic = id;
+    btn.type = 'button';
+    btn.title = `【${spec.name}】（${rarityNames[spec.rarity] || spec.rarity}）\n${spec.desc}`;
+
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = spec.name;
+
+    const raritySpan = document.createElement('span');
+    raritySpan.className = 'dbg-relic-rarity';
+    raritySpan.textContent = rarityNames[spec.rarity] || spec.rarity;
+
+    btn.append(nameSpan, raritySpan);
+    btn.addEventListener('click', () => {
+      debugRelics[id] = !debugRelics[id];
+      btn.classList.toggle('active', debugRelics[id]);
+      syncRelicsToPos();
+      toast(`已${debugRelics[id] ? '启用' : '关闭'}宝物：${spec.name}`);
+      render();
+      updateEval();
+    });
+    dbgRelicsGrid.appendChild(btn);
+  }
+
+  btnAllRelics.addEventListener('click', () => {
+    for (const id of Object.keys(RELICS)) {
+      debugRelics[id] = true;
+    }
+    updateRelicButtons();
+    syncRelicsToPos();
+    toast('已启用全部战术宝物');
+    render();
+    updateEval();
+  });
+
+  btnClearRelics.addEventListener('click', () => {
+    for (const id of Object.keys(RELICS)) {
+      debugRelics[id] = false;
+    }
+    updateRelicButtons();
+    syncRelicsToPos();
+    toast('已清空全部战术宝物');
+    render();
+    updateEval();
+  });
+}
+
+function updateRelicButtons() {
+  const btns = dbgRelicsGrid.querySelectorAll('.dbg-relic-btn');
+  for (const b of btns) {
+    const id = b.dataset.relic;
+    b.classList.toggle('active', !!debugRelics[id]);
+  }
+}
+
+function syncRelicsToPos() {
+  pos.relics = { ...debugRelics };
+}
+
 /* ------------------------------------------------------------- startup */
 
 buildCells();
 buildCoords();
 buildTiersUI(redTiersContainer, RED);
 buildTiersUI(blackTiersContainer, BLACK);
+initRelicsUI();
+syncRelicsToPos();
 renderPalette();
 initToolSwitcher();
 initButtons();

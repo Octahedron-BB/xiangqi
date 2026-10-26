@@ -14,7 +14,7 @@ import {
   itemCount, takeItem, serializeRun, deserializeRun, letterIndex,
   addOrReserve, autoDeployFromReserves, getStageReinforcements, countOfReserve, HOME,
 } from './run.js';
-import { drawRewards, applyReward, describeBuild, describeArmy, PIECE_CN, RELICS } from './rewards.js';
+import { drawRewards, applyReward, describeBuild, describeArmy, PIECE_CN, RELICS, TIERS } from './rewards.js';
 import { buildShop, buy, getRefreshCost, refreshShop } from './shop.js';
 import { chineseNotation } from '../notation.js';
 
@@ -136,6 +136,13 @@ function render() {
   renderMarks();
 }
 
+function getEmptyHomeSquares(type) {
+  if (!pos || !HOME[type]) return [];
+  return HOME[type]
+    .map((s) => (typeof s === 'string' ? nameSquare(s) : s))
+    .filter((sq) => pos.board[sq] === EMPTY);
+}
+
 function renderMarks() {
   marksLayer.textContent = '';
   if (lastMove) {
@@ -155,16 +162,14 @@ function renderMarks() {
     marksLayer.appendChild(mark);
   }
   if (deployingReserveType) {
-    const homeSqs = HOME[deployingReserveType] ?? [];
-    for (const sq of homeSqs) {
-      if (pos.board[sq] === EMPTY) {
-        const mark = document.createElement('div');
-        mark.className = 'mark deploy';
-        mark.style.left = `${pctX(sq)}%`;
-        mark.style.top = `${pctY(sq)}%`;
-        mark.title = `点击部署备用${PIECE_CN[deployingReserveType]}`;
-        marksLayer.appendChild(mark);
-      }
+    const emptySqs = getEmptyHomeSquares(deployingReserveType);
+    for (const sq of emptySqs) {
+      const mark = document.createElement('div');
+      mark.className = 'mark deploy';
+      mark.style.left = `${pctX(sq)}%`;
+      mark.style.top = `${pctY(sq)}%`;
+      mark.title = `点击将${PIECE_CN[deployingReserveType]}部署在此处`;
+      marksLayer.appendChild(mark);
     }
   }
 }
@@ -221,11 +226,22 @@ function updateHud() {
     const count = countOfReserve(run, type);
     if (count > 0) {
       hasReserves = true;
+      const emptySqs = getEmptyHomeSquares(type);
+      const hasEmptySpot = emptySqs.length > 0;
+      const isRedTurn = pos?.turn === RED && !busy && !finished;
       const btn = document.createElement('button');
-      btn.className = `reserve-btn${deployingReserveType === type ? ' active' : ''}`;
+      btn.className = `reserve-btn${deployingReserveType === type ? ' active' : ''}${!hasEmptySpot ? ' no-spot' : ''}`;
       btn.textContent = `${PIECE_CN[type]} ×${count}`;
-      btn.title = `点击后可部署到己方初始${PIECE_CN[type]}位置（空位）`;
-      btn.disabled = busy || finished || pos?.turn !== RED;
+      if (!hasEmptySpot) {
+        btn.disabled = true;
+        btn.title = `初始${PIECE_CN[type]}位置已被全部占用，无空位可放入`;
+      } else if (!isRedTurn) {
+        btn.disabled = true;
+        btn.title = '非己方回合或思考中，不可部署';
+      } else {
+        btn.disabled = false;
+        btn.title = `点击后在棋盘上选择放入位置（空位：${emptySqs.map(squareName).map((s) => s.toUpperCase()).join('、')}）`;
+      }
       btn.onclick = (e) => {
         e.stopPropagation();
         if (deployingReserveType === type) {
@@ -245,7 +261,7 @@ function updateHud() {
     reservesEl.textContent = '暂无备用子力';
   }
 
-  // Relics
+  // Relics (宝物)
   relicsEl.textContent = '';
   const activeRelics = Object.keys(run.relics ?? {}).filter((k) => run.relics[k]);
   if (!activeRelics.length) {
@@ -260,9 +276,34 @@ function updateHud() {
     }
   }
 
-  const summary = describeBuild(run);
-  buildEl.textContent = summary || '还没有强化';
-  buildEl.classList.toggle('muted', !summary);
+  // Piece Upgrades (仅显示子力强化)
+  buildEl.textContent = '';
+  let hasUpgrades = false;
+  for (const type of ['p', 'n', 'c', 'r', 'a', 'b']) {
+    const tier = run.tiers?.[type] ?? 0;
+    if (tier > 0) {
+      hasUpgrades = true;
+      const branch = run.branches?.[type];
+      const hasBranches = ['p', 'n', 'c', 'r'].includes(type);
+      const spec = (hasBranches && branch) ? TIERS[type]?.[branch]?.[tier] : TIERS[type]?.[tier];
+      const branchTag = branch === 'A' ? '[甲]' : branch === 'B' ? '[乙]' : '';
+      const branchName = branch === 'A' ? '路线甲' : branch === 'B' ? '路线乙' : '';
+      const label = `${PIECE_CN[type]}${branchTag} · ${spec?.name || `T${tier}`}`;
+      const tooltip = `【${PIECE_CN[type]}强化 · Tier ${tier}${branchName ? ` (${branchName})` : ''}】\n${spec?.name || ''}：${spec?.desc || ''}`;
+
+      const tag = document.createElement('span');
+      tag.className = 'hud-upgrade-tag';
+      tag.textContent = label;
+      tag.title = tooltip;
+      buildEl.appendChild(tag);
+    }
+  }
+  if (!hasUpgrades) {
+    buildEl.textContent = '无';
+    buildEl.classList.add('muted');
+  } else {
+    buildEl.classList.remove('muted');
+  }
 }
 
 let toastTimer = 0;
@@ -469,6 +510,7 @@ function play(from, to) {
   renderMoves();
   renderStatus();
   updateEval();
+  updateHud();
 
   if (finishIfOver()) return;
 
@@ -618,11 +660,13 @@ async function botTurn() {
   await sleep(160); // let the browser paint the "thinking" state
   if (stale()) {
     busy = false;
+    updateHud();
     return;
   }
   const res = chooseMove(pos, level.ai);
   if (stale()) {
     busy = false;
+    updateHud();
     return;
   }
   // never snap the reply down instantly, even when the search is trivially fast
@@ -630,6 +674,7 @@ async function botTurn() {
   if (dwell) await sleep(dwell);
   if (stale()) {
     busy = false;
+    updateHud();
     return;
   }
   const chosen = avoidingRepetition(res);
@@ -646,6 +691,7 @@ async function botTurn() {
   render();
   renderMoves();
   updateEval();
+  updateHud();
   aiInfoEl.textContent = `深度 ${res.depth} · ${(res.nodes / 1000).toFixed(1)}k 节点 · ${res.timeMs}ms · ${(res.score / 100).toFixed(1)}`;
   if (!finishIfOver()) renderStatus();
 }
@@ -1085,8 +1131,8 @@ function onSquare(sq) {
 
   // Handle deployment from reserve
   if (deployingReserveType) {
-    const homeSqs = HOME[deployingReserveType] ?? [];
-    if (homeSqs.includes(sq) && pos.board[sq] === EMPTY) {
+    const emptySqs = getEmptyHomeSquares(deployingReserveType);
+    if (emptySqs.includes(sq)) {
       const type = deployingReserveType;
       const code = codeOf(RED, LETTER_TYPE[type]);
       pos.board[sq] = code;
@@ -1106,7 +1152,7 @@ function onSquare(sq) {
       renderMoves();
       renderStatus();
       updateEval();
-      toast(`从备库部署了 1 个${pieceName}！`);
+      toast(`从备库部署了 1 个${pieceName}（${squareName(sq).toUpperCase()}）！`);
       if (finishIfOver()) return;
 
       if (redBonusTurns > 0) {
