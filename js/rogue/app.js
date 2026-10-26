@@ -528,11 +528,16 @@ function play(from, to) {
     }
     // 《弃子争先》
     if (redBonusTurns > 0) {
-      redBonusTurns -= 1;
-      pos.turn = RED;
-      renderStatus();
-      toast('《弃子争先》连走回合！红方请继续行动');
-      return;
+      if (pos.inCheck(BLACK)) {
+        redBonusTurns = 0;
+        toast('《弃子争先》红方叫将！按双招规则提前终结连走，黑方立即应将');
+      } else {
+        redBonusTurns -= 1;
+        pos.turn = RED;
+        renderStatus();
+        toast('《弃子争先》连走回合！红方请继续行动');
+        return;
+      }
     }
   }
 
@@ -619,11 +624,16 @@ function finishBonusStep(dest) {
   }
 
   if (redBonusTurns > 0) {
-    redBonusTurns -= 1;
-    pos.turn = RED;
-    renderStatus();
-    toast('《弃子争先》连走回合！红方请继续行动');
-    return;
+    if (pos.inCheck(BLACK)) {
+      redBonusTurns = 0;
+      toast('《弃子争先》红方叫将！按双招规则提前终结连走，黑方立即应将');
+    } else {
+      redBonusTurns -= 1;
+      pos.turn = RED;
+      renderStatus();
+      toast('《弃子争先》连走回合！红方请继续行动');
+      return;
+    }
   }
 
   if (!finishIfOver()) botTurn();
@@ -1156,11 +1166,16 @@ function onSquare(sq) {
       if (finishIfOver()) return;
 
       if (redBonusTurns > 0) {
-        redBonusTurns -= 1;
-        pos.turn = RED;
-        renderStatus();
-        toast('《弃子争先》连走回合！红方请继续行动');
-        return;
+        if (pos.inCheck(BLACK)) {
+          redBonusTurns = 0;
+          toast('《弃子争先》红方叫将！按双招规则提前终结连走，黑方立即应将');
+        } else {
+          redBonusTurns -= 1;
+          pos.turn = RED;
+          renderStatus();
+          toast('《弃子争先》连走回合！红方请继续行动');
+          return;
+        }
       }
       botTurn();
       return;

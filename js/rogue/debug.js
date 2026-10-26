@@ -293,11 +293,16 @@ function play(from, to) {
   // If Red just played, check bonus turn or let black bot reply
   if (mover === RED) {
     if (redBonusTurns > 0) {
-      redBonusTurns--;
-      pos.turn = RED;
-      renderStatus();
-      toast('【连击】红方连续行动第二步！');
-      return;
+      if (pos.inCheck(BLACK)) {
+        redBonusTurns = 0;
+        toast('《弃子争先》红方叫将！按双招规则提前终结连走，黑方立即应将');
+      } else {
+        redBonusTurns--;
+        pos.turn = RED;
+        renderStatus();
+        toast('【连击】红方连续行动第二步！');
+        return;
+      }
     }
     if (pos.kings[BLACK] >= 0 && pos.hasLegalMove()) {
       botTurn();
@@ -387,11 +392,16 @@ function finishBonusStep(dest) {
 
   if (moverSide === RED) {
     if (redBonusTurns > 0) {
-      redBonusTurns--;
-      pos.turn = RED;
-      renderStatus();
-      toast('【连击】红方连续行动第二步！');
-      return;
+      if (pos.inCheck(BLACK)) {
+        redBonusTurns = 0;
+        toast('《弃子争先》红方叫将！按双招规则提前终结连走，黑方立即应将');
+      } else {
+        redBonusTurns--;
+        pos.turn = RED;
+        renderStatus();
+        toast('【连击】红方连续行动第二步！');
+        return;
+      }
     }
     if (pos.kings[BLACK] >= 0 && pos.hasLegalMove()) {
       botTurn();

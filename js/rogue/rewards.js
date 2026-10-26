@@ -147,7 +147,7 @@ export const RELICS = {
     name: '《弃子争先》',
     rarity: 'rare',
     weight: 45,
-    desc: '我方大子（车/马/炮）阵亡后，下个红方回合直接获得连续行动两次的特权！',
+    desc: '我方大子（车/马/炮）阵亡后，下个红方回合获得连走两步特权（若第1步叫将则按双招规则提前终结连走，逼对方应将）！',
   },
   soul_retrieval: {
     id: 'soul_retrieval',
