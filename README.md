@@ -167,6 +167,13 @@ node tools/smoke-rogue.mjs
 
 ---
 
+## 👥 贡献者与鸣谢 (Contributors & Acknowledgements)
+
+- **[Octahedron-BB](https://github.com/Octahedron-BB)** - 项目发起人、游戏规则与战役数值设计、核心架构开发
+- **[Gemini](https://deepmind.google/technologies/gemini/) (Google DeepMind)** - AI 结对编程助手、算法推演与代码工程实现
+
+---
+
 ## 📄 开源许可证
 
 本项目基于 [MIT 许可证](LICENSE) 开源。欢迎交流、学习与贡献！

@@ -15,5 +15,11 @@
     "chess-engine"
   ],
   "author": "Octahedron-BB",
+  "contributors": [
+    {
+      "name": "Gemini (Google DeepMind)",
+      "url": "https://deepmind.google/technologies/gemini/"
+    }
+  ],
   "license": "MIT"
 }
